@@ -2,33 +2,35 @@
 require_once 'config/db.php';
 require_once 'config/auth.php';
 
-// Check if user is logged in
-if (!isset($_SESSION['user_id'])) {
-    if (isset($_GET['action']) && $_GET['action'] === 'get_product') {
-        header('Content-Type: application/json');
-        http_response_code(401);
-        echo json_encode(['error' => 'Session expired. Please refresh the page and login again.']);
-        exit;
-    }
-    header("Location: login.php");
-    exit();
-}
+// Check if user has access to inventory management
+// Admins, store clerks, and suppliers can access inventory
+requireRole(['admin', 'store_clerk', 'supplier'], $conn);
+
+$current_user_role = getCurrentUserRole($conn);
 
 // Function to get all products
 function getAllProducts($conn) {
-    $sql = "SELECT * FROM products ORDER BY name ASC";
+    $sql = "SELECT * FROM products ORDER BY id ASC";
     $result = $conn->query($sql);
     return $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
 }
 
 // Function to add new product
 function addProduct($conn, $name, $quantity, $alert_quantity, $price) {
-    $stmt = $conn->prepare("INSERT INTO products (name, quantity, alert_quantity, price) VALUES (?, ?, ?, ?)");
-    $stmt->bind_param("siid", $name, $quantity, $alert_quantity, $price);
-    return $stmt->execute();
+    try {
+        $stmt = $conn->prepare("INSERT INTO products (name, quantity, alert_quantity, price) VALUES (?, ?, ?, ?)");
+        if (!$stmt) {
+            throw new Exception("Prepare failed: " . $conn->error);
+        }
+        $stmt->bind_param("siid", $name, $quantity, $alert_quantity, $price);
+        return $stmt->execute();
+    } catch (Exception $e) {
+        error_log("Add product error: " . $e->getMessage());
+        throw $e;
+    }
 }
 
-// Function to update existing product
+// Function to delete product
 function deleteProduct($conn, $id) {
     try {
         $stmt = $conn->prepare("DELETE FROM products WHERE id = ?");
@@ -48,6 +50,7 @@ function deleteProduct($conn, $id) {
     }
 }
 
+// Function to update existing product
 function updateProduct($conn, $id, $name, $quantity, $alert_quantity, $price) {
     try {
         $stmt = $conn->prepare("UPDATE products SET name = ?, quantity = ?, alert_quantity = ?, price = ? WHERE id = ?");
@@ -105,20 +108,38 @@ function getProduct($conn, $id) {
     }
 }
 
-// Handle form submission
-// Handle AJAX request for getting product details
-if (isset($_GET['action']) && $_GET['action'] === 'get_product' && isset($_GET['id'])) {
+// Handle AJAX requests
+if (isset($_GET['action'])) {
     header('Content-Type: application/json');
+    
     try {
-        if (!is_numeric($_GET['id'])) {
-            throw new Exception('Invalid product ID');
-        }
-        $product = getProduct($conn, $_GET['id']);
-        if ($product) {
-            echo json_encode($product);
-        } else {
-            http_response_code(404);
-            echo json_encode(['error' => 'Product not found']);
+        switch ($_GET['action']) {
+            case 'get_product':
+                if (!isset($_GET['id']) || !is_numeric($_GET['id'])) {
+                    throw new Exception('Invalid product ID');
+                }
+                $product = getProduct($conn, $_GET['id']);
+                if ($product) {
+                    echo json_encode($product);
+                } else {
+                    http_response_code(404);
+                    echo json_encode(['error' => 'Product not found']);
+                }
+                break;
+                
+            case 'delete':
+                if (!isset($_GET['id']) || !is_numeric($_GET['id'])) {
+                    throw new Exception('Invalid product ID');
+                }
+                if (deleteProduct($conn, $_GET['id'])) {
+                    echo json_encode(['success' => true]);
+                } else {
+                    throw new Exception('Failed to delete product');
+                }
+                break;
+                
+            default:
+                throw new Exception('Invalid action');
         }
     } catch (Exception $e) {
         http_response_code(400);
@@ -127,87 +148,33 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_product' && isset($_GET['
     exit;
 }
 
-// Handle delete request
-if (isset($_GET['action']) && $_GET['action'] === 'delete' && isset($_GET['id'])) {
-    header('Content-Type: application/json');
+// Handle POST requests
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     try {
-        if (!is_numeric($_GET['id'])) {
-            throw new Exception('Invalid product ID');
-        }
-        if (deleteProduct($conn, $_GET['id'])) {
-            echo json_encode(['success' => true]);
-        } else {
-            throw new Exception('Failed to delete product');
-        }
-    } catch (Exception $e) {
-        http_response_code(400);
-        echo json_encode(['error' => $e->getMessage()]);
-    }
-    exit;
-}
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (isset($_POST['action'])) {
         switch ($_POST['action']) {
             case 'add':
-                $name = $_POST['name'];
-                $quantity = $_POST['quantity'];
-                $alert_quantity = $_POST['alert_quantity'];
-                $price = $_POST['price'];
-                
-                if (addProduct($conn, $name, $quantity, $alert_quantity, $price)) {
-                    $success = "Product added successfully";
-                } else {
-                    $error = "Error adding product";
+                if (!addProduct($conn, $_POST['name'], $_POST['quantity'], $_POST['alert_quantity'], $_POST['price'])) {
+                    throw new Exception("Failed to add product");
                 }
+                $success = "Product added successfully";
                 break;
-              case 'edit':
-                $id = $_POST['product_id'];
-                $name = $_POST['name'];
-                $quantity = $_POST['quantity'];
-                $alert_quantity = $_POST['alert_quantity'];
-                $price = $_POST['price'];
-                
-                try {
-                    if (updateProduct($conn, $id, $name, $quantity, $alert_quantity, $price)) {
-                        $success = "Product updated successfully";
-                    } else {
-                        $error = "Error updating product: " . $conn->error;
-                    }
-                } catch (Exception $e) {
-                    $error = "Error updating product: " . $e->getMessage();
+
+            case 'edit':
+                if (!updateProduct($conn, $_POST['product_id'], $_POST['name'], $_POST['quantity'], $_POST['alert_quantity'], $_POST['price'])) {
+                    throw new Exception("Failed to update product");
                 }
+                $success = "Product updated successfully";
                 break;
+                
+            default:
+                throw new Exception("Invalid action");
         }
-    }    // Handle AJAX request for getting product details
-    if (isset($_GET['action']) && $_GET['action'] === 'get_product' && isset($_GET['id'])) {
-        header('Content-Type: application/json');
-        
-        try {
-            if (!is_numeric($_GET['id'])) {
-                throw new Exception('Invalid product ID');
-            }
-            
-            $product = getProduct($conn, $_GET['id']);
-            if ($product) {
-                echo json_encode($product);
-            } else {
-                http_response_code(404);
-                echo json_encode(['error' => 'Product not found']);
-            }
-        } catch (Exception $e) {
-            http_response_code(400);
-            echo json_encode(['error' => $e->getMessage()]);
-        }
-        exit;
+    } catch (Exception $e) {
+        $error = $e->getMessage();
     }
-    
-    // Set error reporting for debugging
-    error_reporting(E_ALL);
-    ini_set('display_errors', 1);
 }
 
-// Get all products
+// Get all products for display
 $products = getAllProducts($conn);
 ?>
 <!DOCTYPE html>
@@ -217,34 +184,14 @@ $products = getAllProducts($conn);
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Inventory Management - Inventory System</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">    <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/dashboard.css">
+    <link rel="stylesheet" href="css/sidebar.css">
 </head>
 <body>
     <div class="dashboard-container">
-        <!-- Sidebar -->
-        <aside class="sidebar">
-            <div class="admin-profile">
-                <div class="admin-info">
-                    <h2>ADMIN</h2>
-                    <span class="status"><i class="fas fa-circle"></i> Online</span>
-                </div>
-            </div>
-
-            <nav class="sidebar-nav">
-                <a href="dashboard.php" class="nav-item">Dashboard</a>
-                <a href="inventory.php" class="nav-item active">Inventory</a>
-                <a href="order.php" class="nav-item">Order</a>
-                <a href="sales.php" class="nav-item">Sales</a>
-                <a href="chart.php" class="nav-item">Chart</a>
-            </nav>
-
-            <div class="sidebar-footer">
-                <a href="change-password.php" class="change-password">Change Password</a>
-                <a href="logout.php" class="logout">Logout</a>
-            </div>
-        </aside>
+        <!-- Include Sidebar -->
+        <?php require_once 'templates/sidebar.php'; ?>
 
         <!-- Main Content -->
         <main class="main-content">
@@ -262,11 +209,11 @@ $products = getAllProducts($conn);
             </header>
 
             <?php if (isset($success)): ?>
-                <div class="alert alert-success"><?php echo $success; ?></div>
+                <div class="alert alert-success"><?php echo htmlspecialchars($success); ?></div>
             <?php endif; ?>
 
             <?php if (isset($error)): ?>
-                <div class="alert alert-danger"><?php echo $error; ?></div>
+                <div class="alert alert-danger"><?php echo htmlspecialchars($error); ?></div>
             <?php endif; ?>
 
             <!-- Products Table -->
@@ -280,6 +227,7 @@ $products = getAllProducts($conn);
                                 <th>Quantity</th>
                                 <th>Alert Quantity</th>
                                 <th>Price</th>
+                                <th>Date Added</th>
                                 <th>Status</th>
                                 <th>Actions</th>
                             </tr>
@@ -292,6 +240,7 @@ $products = getAllProducts($conn);
                                 <td><?php echo htmlspecialchars($product['quantity']); ?></td>
                                 <td><?php echo htmlspecialchars($product['alert_quantity']); ?></td>
                                 <td>$<?php echo number_format($product['price'], 2); ?></td>
+                                <td><?php echo date('M j, Y', strtotime($product['created_at'])); ?></td>
                                 <td>
                                     <span class="status-badge <?php echo $product['quantity'] <= $product['alert_quantity'] ? 'low-stock' : 'in-stock'; ?>">
                                         <?php echo $product['quantity'] <= $product['alert_quantity'] ? 'Low Stock' : 'In Stock'; ?>
@@ -309,7 +258,7 @@ $products = getAllProducts($conn);
                             <?php endforeach; ?>
                             <?php if (empty($products)): ?>
                             <tr>
-                                <td colspan="7" class="text-center">No products found</td>
+                                <td colspan="8" class="text-center">No products found</td>
                             </tr>
                             <?php endif; ?>
                         </tbody>
@@ -352,7 +301,9 @@ $products = getAllProducts($conn);
                 </div>
             </form>
         </div>
-    </div>    <!-- Edit Product Modal -->
+    </div>
+
+    <!-- Edit Product Modal -->
     <div id="editProductModal" class="modal">
         <div class="modal-content">
             <h2>Edit Product</h2>
@@ -389,6 +340,7 @@ $products = getAllProducts($conn);
     </div>
 
     <script>
+        // Modal functions
         function openAddProductModal() {
             document.getElementById('addProductModal').style.display = 'block';
         }
@@ -403,32 +355,17 @@ $products = getAllProducts($conn);
 
         function closeEditProductModal() {
             document.getElementById('editProductModal').style.display = 'none';
-        }        async function editProduct(id) {
+        }
+
+        // Product operations
+        async function editProduct(id) {
             try {
-                // Show loading state
-                const loadingMessage = 'Loading product details...';
-                console.log(loadingMessage);
-                
-                // Fetch product details
                 const response = await fetch(`inventory.php?action=get_product&id=${id}`);
-                const contentType = response.headers.get('content-type');
-                
-                // Check if response is JSON
-                if (!contentType || !contentType.includes('application/json')) {
-                    throw new Error('Server returned invalid content type. Expected JSON.');
-                }
-                
                 const data = await response.json();
                 
                 if (!response.ok) {
                     throw new Error(data.error || `HTTP error! status: ${response.status}`);
                 }
-                
-                if (data.error) {
-                    throw new Error(data.error);
-                }
-                
-                console.log('Product data received:', data);
                 
                 // Populate the edit form
                 document.getElementById('edit_product_id').value = data.id;
@@ -456,7 +393,6 @@ $products = getAllProducts($conn);
                     }
                     
                     if (data.success) {
-                        // Reload the page to show updated list
                         window.location.reload();
                     } else {
                         throw new Error('Failed to delete product');
