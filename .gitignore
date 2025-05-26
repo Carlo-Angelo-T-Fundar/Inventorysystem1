@@ -1,13 +1,27 @@
-/add_item.php
-/admin
-/config
-/css
-/dashboard.php
-/dashboard_new.php
-/edit_item.php
-/login.php
-/logout.php
-/queries.sql
-/register.php
-/setup.php
-/templates
+# Sensitive configuration files
+/config/config.php
+
+# Keep other config files
+!/config/
+!/config/*
+/config/config.php
+
+# Backup directories
+/backup_*/
+
+# Development and temporary files
+*.bak
+*.old
+*.copy
+*copy.php
+*copy/
+
+# Log files
+*.log
+error_log
+access_log
+
+# Keep core application files
+!/admin/
+!/css/
+!/templates/

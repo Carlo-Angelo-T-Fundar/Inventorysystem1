@@ -1,0 +1,23 @@
+# Enable URL rewriting
+RewriteEngine On
+
+# Set the base directory
+RewriteBase /inventorysystem/Inventorysystem1-1/
+
+# Redirect API requests to the API folder
+RewriteRule ^api/(.*)$ api/$1 [QSA,L]
+
+# Handle PHP files directly
+RewriteCond %{REQUEST_FILENAME} -f
+RewriteRule ^.*\.php$ - [L]
+
+# Allow direct access to existing files
+RewriteCond %{REQUEST_FILENAME} -f
+RewriteRule ^ - [L]
+
+# Allow direct access to existing directories
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# Route all other requests to index.php
+RewriteRule ^ index.php [QSA,L]
