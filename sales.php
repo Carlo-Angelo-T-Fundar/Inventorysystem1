@@ -146,14 +146,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_sale'])) {
                 // Add order item
                 $item_sql = "INSERT INTO order_items (order_id, product_id, quantity, price) VALUES (?, ?, ?, ?)";
                 $stmt = $conn->prepare($item_sql);
-                $stmt->bind_param('iidd', $order_id, $product_id, $quantity, $product['price']);
-                
-                if ($stmt->execute()) {
+                $stmt->bind_param('iidd', $order_id, $product_id, $quantity, $product['price']);                if ($stmt->execute()) {
                     // Update product quantity
                     $update_sql = "UPDATE products SET quantity = quantity - ? WHERE id = ?";
                     $stmt = $conn->prepare($update_sql);
                     $stmt->bind_param('ii', $quantity, $product_id);
                     $stmt->execute();
+                    
+                    // Ensure inventory_transactions table exists
+                    $check_table = $conn->query("SHOW TABLES LIKE 'inventory_transactions'");
+                    if ($check_table->num_rows == 0) {
+                        // Create the table if it doesn't exist
+                        $create_table_sql = "CREATE TABLE IF NOT EXISTS inventory_transactions (
+                            id INT AUTO_INCREMENT PRIMARY KEY,
+                            product_id INT NOT NULL,
+                            product_name VARCHAR(255) NOT NULL,
+                            transaction_type ENUM('delivery', 'sale', 'adjustment', 'return') NOT NULL DEFAULT 'delivery',
+                            quantity INT NOT NULL,
+                            unit_price DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+                            total_value DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+                            supplier_order_id INT NULL,
+                            supplier_name VARCHAR(255) NULL,
+                            batch_number VARCHAR(100) NULL,
+                            expiry_date DATE NULL,
+                            transaction_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            notes TEXT NULL,
+                            created_by VARCHAR(100) NULL,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            
+                            FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+                            INDEX idx_product_id (product_id),
+                            INDEX idx_transaction_type (transaction_type),
+                            INDEX idx_transaction_date (transaction_date),
+                            INDEX idx_supplier_order_id (supplier_order_id)
+                        )";
+                        $conn->query($create_table_sql);
+                    }
+                    
+                    // Create inventory transaction record for the sale
+                    $total_value = $quantity * $product['price'];
+                    $current_user = isset($_SESSION['username']) ? $_SESSION['username'] : 'system';
+                    
+                    $insert_transaction = $conn->prepare("INSERT INTO inventory_transactions (product_id, product_name, transaction_type, quantity, unit_price, total_value, notes, created_by) VALUES (?, ?, 'sale', ?, ?, ?, 'Sale transaction', ?)");
+                    $insert_transaction->bind_param("isidds", 
+                        $product_id, 
+                        $product['name'], 
+                        $quantity, 
+                        $product['price'], 
+                        $total_value, 
+                        $current_user
+                    );
+                    $insert_transaction->execute();
                     
                     $success_message = "Sale added successfully!";
                     

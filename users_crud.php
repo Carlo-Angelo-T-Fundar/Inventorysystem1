@@ -1,5 +1,5 @@
 <?php
-session_start();
+
 require_once 'config/db.php';
 require_once 'config/auth.php';
 
@@ -21,15 +21,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $email = trim($_POST['email']);
         $role = $_POST['role'];
         $full_name = trim($_POST['full_name']);
-        
-        // Validation
+          // Validation
         if (empty($username) || empty($password) || empty($email) || empty($role) || empty($full_name)) {
             $error = "All fields are required";
         } elseif (strlen($password) < 6) {
             $error = "Password must be at least 6 characters long";
         } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
             $error = "Invalid email format";
-        } elseif (!in_array($role, ['admin', 'supplier', 'store_clerk', 'cashier'])) {
+        } elseif (!in_array($role, ['admin', 'store_clerk', 'cashier'])) {
             $error = "Invalid role selected";
         } else {
             // Check if username already exists
@@ -75,13 +74,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $role = $_POST['role'];
         $full_name = trim($_POST['full_name']);
         $password = $_POST['password'];
-        
-        // Validation
+          // Validation
         if (empty($username) || empty($email) || empty($role) || empty($full_name)) {
             $error = "All fields except password are required";
         } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
             $error = "Invalid email format";
-        } elseif (!in_array($role, ['admin', 'supplier', 'store_clerk', 'cashier'])) {
+        } elseif (!in_array($role, ['admin', 'store_clerk', 'cashier'])) {
             $error = "Invalid role selected";
         } else {
             // Check if username already exists for other users
@@ -386,16 +384,9 @@ $current_page = 'users_crud';
             font-weight: 500;
             text-transform: uppercase;
             letter-spacing: 0.05em;
-        }
-
-        .role-admin {
+        }        .role-admin {
             background-color: #fee2e2;
             color: #dc2626;
-        }
-
-        .role-supplier {
-            background-color: #dbeafe;
-            color: #2563eb;
         }
 
         .role-store_clerk {
@@ -563,12 +554,10 @@ $current_page = 'users_crud';
 
                 <?php if ($action === 'list'): ?>
                     <!-- User Statistics -->
-                    <?php
-                    $stats_query = $conn->query("
+                    <?php                    $stats_query = $conn->query("
                         SELECT 
                             COUNT(*) as total_users,
                             SUM(CASE WHEN role = 'admin' THEN 1 ELSE 0 END) as admin_count,
-                            SUM(CASE WHEN role = 'supplier' THEN 1 ELSE 0 END) as supplier_count,
                             SUM(CASE WHEN role = 'store_clerk' THEN 1 ELSE 0 END) as clerk_count,
                             SUM(CASE WHEN role = 'cashier' THEN 1 ELSE 0 END) as cashier_count
                         FROM users
@@ -589,13 +578,6 @@ $current_page = 'users_crud';
                             </div>
                             <div class="number"><?php echo $stats['admin_count']; ?></div>
                             <div class="label">Admins</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="icon" style="background-color: #10b981;">
-                                <i class="fas fa-truck"></i>
-                            </div>
-                            <div class="number"><?php echo $stats['supplier_count']; ?></div>
-                            <div class="label">Suppliers</div>
                         </div>
                         <div class="stat-card">
                             <div class="icon" style="background-color: #f59e0b;">
@@ -654,14 +636,10 @@ $current_page = 'users_crud';
                                     <div class="form-group">
                                         <label for="role">
                                             <i class="fas fa-user-tag"></i> User Role
-                                        </label>
-                                        <select id="role" name="role" required>
+                                        </label>                                        <select id="role" name="role" required>
                                             <option value="">Select Role</option>
                                             <option value="admin" <?php echo ($action === 'edit' && $edit_user['role'] === 'admin') ? 'selected' : ''; ?>>
                                                 Admin - Overall Operations & System Management
-                                            </option>
-                                            <option value="supplier" <?php echo ($action === 'edit' && $edit_user['role'] === 'supplier') ? 'selected' : ''; ?>>
-                                                Supplier - Resupply & Inventory Restocking
                                             </option>
                                             <option value="store_clerk" <?php echo ($action === 'edit' && $edit_user['role'] === 'store_clerk') ? 'selected' : ''; ?>>
                                                 Store Clerk - Product Availability Control
@@ -730,10 +708,8 @@ $current_page = 'users_crud';
                                                 <td><?php echo htmlspecialchars($row['email']); ?></td>
                                                 <td>
                                                     <span class="role-badge role-<?php echo $row['role']; ?>">
-                                                        <?php 
-                                                        $role_labels = [
+                                                        <?php                                                        $role_labels = [
                                                             'admin' => 'Admin',
-                                                            'supplier' => 'Supplier', 
                                                             'store_clerk' => 'Store Clerk',
                                                             'cashier' => 'Cashier'
                                                         ];
