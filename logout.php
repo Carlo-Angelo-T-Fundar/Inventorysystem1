@@ -1,5 +1,11 @@
 <?php
 session_start();
+require_once 'config/db.php';
+require_once 'config/activity_logger.php';
+
+// Initialize activity logger and log logout before destroying session
+$activityLogger = new UserActivityLogger($conn);
+$activityLogger->logLogout();
 
 // Clear all session variables
 $_SESSION = array();

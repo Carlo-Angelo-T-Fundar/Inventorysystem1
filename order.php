@@ -8,144 +8,243 @@ if (!isset($_SESSION['user_id'])) {
     exit();
 }
 
-// Function to get all orders with items
-function getAllOrders($conn) {
-    $sql = "SELECT o.*
-            FROM orders o
-            ORDER BY o.id ASC";
+// Check if user has access to supplier orders
+// Most users should have access to view supplier orders for inventory management
+
+// Function to get all supplier orders
+function getAllSupplierOrders($conn) {
+    $sql = "SELECT so.*, p.quantity as current_stock 
+            FROM supplier_orders so
+            LEFT JOIN products p ON so.product_id = p.id
+            ORDER BY so.order_date DESC";
     $result = $conn->query($sql);
-    
-    $orders = [];
-    if ($result && $result->num_rows > 0) {
-        while ($order = $result->fetch_assoc()) {
-            // Get items for this order
-            $sql = "SELECT oi.*, p.name as product_name
-                    FROM order_items oi
-                    JOIN products p ON oi.product_id = p.id
-                    WHERE oi.order_id = " . $order['id'];
-            $items_result = $conn->query($sql);
-            
-            $order['items'] = [];
-            if ($items_result && $items_result->num_rows > 0) {
-                while ($item = $items_result->fetch_assoc()) {
-                    $order['items'][] = $item;
-                }
-            }
-            
-            $orders[] = $order;
-        }
-    }
-    return $orders;
+    return $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
 }
 
-// Handle form submission for updating order status
+// Function to get all products for order creation
+function getProducts($conn) {
+    $sql = "SELECT id, name, quantity, price FROM products ORDER BY name ASC";
+    $result = $conn->query($sql);
+    return $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
+}
+
+// Function to get all suppliers
+function getSuppliers($conn) {
+    // Ensure suppliers table exists
+    $check_table = $conn->query("SHOW TABLES LIKE 'suppliers'");
+    if ($check_table->num_rows == 0) {
+        $create_table_sql = "CREATE TABLE IF NOT EXISTS suppliers (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            email VARCHAR(255) NOT NULL,
+            phone VARCHAR(20) NOT NULL,
+            address TEXT NULL,
+            is_active TINYINT(1) DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )";
+        $conn->query($create_table_sql);
+        
+        // Insert some sample suppliers if table is empty
+        $sample_suppliers = "INSERT INTO suppliers (name, email, phone, is_active) VALUES 
+            ('ABC Supply Co.', 'contact@abcsupply.com', '+1-555-0101', 1),
+            ('XYZ Trading', 'sales@xyztrading.com', '+1-555-0102', 1),
+            ('Global Suppliers Inc.', 'info@globalsuppliers.com', '+1-555-0103', 1)";
+        $conn->query($sample_suppliers);
+    }
+    
+    $sql = "SELECT * FROM suppliers WHERE is_active = 1 ORDER BY name ASC";
+    $result = $conn->query($sql);
+    return $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
+}
+
+// Handle form submissions
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
-    switch ($_POST['action']) {        case 'update_status':
-            try {
-                $order_id = $_POST['order_id'];
-                $status = $_POST['status'];
+    try {
+        switch ($_POST['action']) {
+            case 'create_supplier':
+                $name = $_POST['supplier_name'];
+                $email = $_POST['supplier_email'];
+                $phone = $_POST['supplier_phone'];
                 
-                // Validate status
-                $allowed_statuses = ['pending', 'processing', 'completed', 'cancelled'];
-                if (!in_array($status, $allowed_statuses)) {
-                    throw new Exception("Invalid status");
+                $stmt = $conn->prepare("INSERT INTO suppliers (name, email, phone, is_active) VALUES (?, ?, ?, 1)");
+                $stmt->bind_param("sss", $name, $email, $phone);
+                  if ($stmt->execute()) {
+                    $success = "Supplier created successfully";
+                    // Refresh the page to show the new supplier in the dropdown
+                    echo "<script>window.location.reload();</script>";
+                } else {
+                    throw new Exception("Failed to create supplier");
+                }
+                break;
+
+            case 'create_product':
+                $name = $_POST['product_name'];
+                $price = (float)$_POST['product_price'];
+                $alert_quantity = (int)$_POST['alert_quantity'];
+                
+                $stmt = $conn->prepare("INSERT INTO products (name, quantity, price, alert_quantity) VALUES (?, 0, ?, ?)");
+                $stmt->bind_param("sdi", $name, $price, $alert_quantity);
+                  if ($stmt->execute()) {
+                    $success = "Product created successfully";
+                    // Refresh the page to show the new product in the dropdown
+                    echo "<script>window.location.reload();</script>";
+                } else {
+                    throw new Exception("Failed to create product");
+                }
+                break;
+
+            case 'create_order':
+                $supplier_id = $_POST['supplier_id'];
+                $product_id = $_POST['product_id'];
+                $quantity_ordered = (int)$_POST['quantity_ordered'];
+                $unit_price = (float)$_POST['unit_price'];
+                $expected_delivery_date = $_POST['expected_delivery_date'];
+                $notes = $_POST['notes'] ?? '';
+                
+                // Get supplier and product information
+                $supplier_result = $conn->query("SELECT * FROM suppliers WHERE id = $supplier_id");
+                $supplier = $supplier_result->fetch_assoc();
+                
+                $product_result = $conn->query("SELECT * FROM products WHERE id = $product_id");
+                $product = $product_result->fetch_assoc();
+                
+                if (!$supplier || !$product) {
+                    throw new Exception("Invalid supplier or product selected");
                 }
                 
-                $stmt = $conn->prepare("UPDATE orders SET status = ? WHERE id = ?");
-                $stmt->bind_param("si", $status, $order_id);
+                $total_amount = $quantity_ordered * $unit_price;
+                
+                $stmt = $conn->prepare("INSERT INTO supplier_orders (supplier_name, supplier_email, supplier_phone, product_id, product_name, quantity_ordered, unit_price, total_amount, expected_delivery_date, notes, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ordered')");
+                $stmt->bind_param("sssissddss", 
+                    $supplier['name'], 
+                    $supplier['email'], 
+                    $supplier['phone'], 
+                    $product_id, 
+                    $product['name'], 
+                    $quantity_ordered, 
+                    $unit_price, 
+                    $total_amount, 
+                    $expected_delivery_date, 
+                    $notes
+                );
                 
                 if ($stmt->execute()) {
-                    $success = "Order status updated successfully";
+                    $success = "Supplier order created successfully";
                 } else {
-                    throw new Exception("Error updating order status");
+                    throw new Exception("Failed to create order");
                 }
-            } catch (Exception $e) {
-                $error = "Error: " . $e->getMessage();
-            }
-            break;
+                break;
 
-        case 'create_order':
-            try {
-                $conn->begin_transaction();
-                
-                $total_amount = 0;
-                
-                // Insert the order first
-                $stmt = $conn->prepare("INSERT INTO orders (total_amount, status) VALUES (?, 'pending')");
-                $stmt->bind_param("d", $total_amount);
-                
-                if (!$stmt->execute()) {
-                    throw new Exception("Error creating order");
+            case 'update_status':
+                $order_id = $_POST['order_id'];
+                $status = $_POST['status'];
+                $quantity_received = isset($_POST['quantity_received']) ? (int)$_POST['quantity_received'] : 0;
+                  $stmt = $conn->prepare("UPDATE supplier_orders SET status = ?, quantity_received = ?, actual_delivery_date = CASE WHEN ? = 'delivered' THEN CURDATE() ELSE actual_delivery_date END WHERE id = ?");
+                $stmt->bind_param("sisi", $status, $quantity_received, $status, $order_id);
+                  if ($stmt->execute()) {
+                    // If order is delivered, create new inventory transaction record
+                    if ($status === 'delivered' && $quantity_received > 0) {
+                        // Get order details for the inventory transaction
+                        $order_result = $conn->query("SELECT product_id, product_name, supplier_name, unit_price FROM supplier_orders WHERE id = $order_id");
+                        $order = $order_result->fetch_assoc();
+                        
+                        // Create inventory transaction record instead of updating existing quantity
+                        $total_value = $quantity_received * $order['unit_price'];
+                        $current_user = isset($_SESSION['username']) ? $_SESSION['username'] : 'system';
+                        
+                        // First, ensure inventory_transactions table exists
+                        $check_table = $conn->query("SHOW TABLES LIKE 'inventory_transactions'");
+                        if ($check_table->num_rows == 0) {
+                            // Create the table if it doesn't exist
+                            $create_table_sql = "CREATE TABLE IF NOT EXISTS inventory_transactions (
+                                id INT AUTO_INCREMENT PRIMARY KEY,
+                                product_id INT NOT NULL,
+                                product_name VARCHAR(255) NOT NULL,
+                                transaction_type ENUM('delivery', 'sale', 'adjustment', 'return') NOT NULL DEFAULT 'delivery',
+                                quantity INT NOT NULL,
+                                unit_price DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+                                total_value DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+                                supplier_order_id INT NULL,
+                                supplier_name VARCHAR(255) NULL,
+                                batch_number VARCHAR(100) NULL,
+                                expiry_date DATE NULL,
+                                transaction_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                notes TEXT NULL,
+                                created_by VARCHAR(100) NULL,
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                
+                                FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+                                INDEX idx_product_id (product_id),
+                                INDEX idx_transaction_type (transaction_type),
+                                INDEX idx_transaction_date (transaction_date),
+                                INDEX idx_supplier_order_id (supplier_order_id)
+                            )";
+                            $conn->query($create_table_sql);
+                        }
+                        
+                        // Insert new inventory transaction record
+                        $insert_transaction = $conn->prepare("INSERT INTO inventory_transactions (product_id, product_name, transaction_type, quantity, unit_price, total_value, supplier_order_id, supplier_name, notes, created_by) VALUES (?, ?, 'delivery', ?, ?, ?, ?, ?, 'Delivered from supplier order', ?)");
+                        $insert_transaction->bind_param("isiddsss", 
+                            $order['product_id'], 
+                            $order['product_name'], 
+                            $quantity_received, 
+                            $order['unit_price'], 
+                            $total_value, 
+                            $order_id, 
+                            $order['supplier_name'], 
+                            $current_user
+                        );
+                        
+                        if ($insert_transaction->execute()) {
+                            // Also update the products table quantity for inventory display
+                            $update_inventory = $conn->prepare("UPDATE products SET quantity = quantity + ? WHERE id = ?");
+                            $update_inventory->bind_param("ii", $quantity_received, $order['product_id']);
+                            $update_inventory->execute();
+                            
+                            $success = "Order delivered and new inventory record created successfully";
+                        } else {
+                            throw new Exception("Failed to create inventory transaction record");
+                        }
+                    } else {
+                        $success = "Order status updated successfully";
+                    }
+                } else {
+                    throw new Exception("Failed to update order status");
                 }
-                
-                $order_id = $conn->insert_id;
-                $items = json_decode($_POST['items'], true);
-                $total = 0;
+                break;
 
-                // Insert order items and update inventory
-                foreach ($items as $item) {
-                    // Get current product price and stock
-                    $stmt = $conn->prepare("SELECT price, quantity FROM products WHERE id = ?");
-                    $stmt->bind_param("i", $item['product_id']);
-                    $stmt->execute();
-                    $product = $stmt->get_result()->fetch_assoc();
-                    
-                    if ($product['quantity'] < $item['quantity']) {
-                        throw new Exception("Insufficient stock for product ID: " . $item['product_id']);
-                    }
-                    
-                    // Insert order item
-                    $stmt = $conn->prepare("INSERT INTO order_items (order_id, product_id, quantity, price) VALUES (?, ?, ?, ?)");
-                    $stmt->bind_param("iiid", $order_id, $item['product_id'], $item['quantity'], $product['price']);
-                    
-                    if (!$stmt->execute()) {
-                        throw new Exception("Error creating order item");
-                    }
-                    
-                    // Update product inventory
-                    $new_quantity = $product['quantity'] - $item['quantity'];
-                    $stmt = $conn->prepare("UPDATE products SET quantity = ? WHERE id = ?");
-                    $stmt->bind_param("ii", $new_quantity, $item['product_id']);
-                    
-                    if (!$stmt->execute()) {
-                        throw new Exception("Error updating product inventory");
-                    }
-                    
-                    $total += $product['price'] * $item['quantity'];
+            case 'delete_order':
+                $order_id = $_POST['order_id'];
+                
+                $stmt = $conn->prepare("DELETE FROM supplier_orders WHERE id = ?");
+                $stmt->bind_param("i", $order_id);
+                
+                if ($stmt->execute()) {
+                    $success = "Order deleted successfully";
+                } else {
+                    throw new Exception("Failed to delete order");
                 }
-                
-                // Update order total
-                $stmt = $conn->prepare("UPDATE orders SET total_amount = ? WHERE id = ?");
-                $stmt->bind_param("di", $total, $order_id);
-                
-                if (!$stmt->execute()) {
-                    throw new Exception("Error updating order total");
-                }
-                
-                $conn->commit();
-                $success = "Order created successfully";
-            } catch (Exception $e) {
-                $conn->rollback();
-                $error = "Error: " . $e->getMessage();
-            }
-            break;
+                break;
+        }
+    } catch (Exception $e) {
+        $error = "Error: " . $e->getMessage();
     }
 }
 
-// Get all orders
-$orders = getAllOrders($conn);
-
-// Get all products for order creation
-$products_result = $conn->query("SELECT id, name, quantity, price FROM products WHERE quantity > 0");
-$products = $products_result->fetch_all(MYSQLI_ASSOC);
-
-?>
+// Get all data for display
+$supplier_orders = getAllSupplierOrders($conn);
+$products = getProducts($conn);
+$suppliers = getSuppliers($conn);?>
 <!DOCTYPE html>
 <html lang="en">
-<head>    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">    <title>Order Management - Inventory System</title>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Supplier Orders - Inventory System</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/dashboard.css">
     <link rel="stylesheet" href="css/sidebar.css">
 </head>
@@ -158,20 +257,11 @@ $products = $products_result->fetch_all(MYSQLI_ASSOC);
         ?>
 
         <!-- Main Content -->
-        <main class="main-content">
-            <div class="content-header">
-                <h1>Orders</h1>
+        <main class="main-content">            <div class="content-header">
+                <h1>Supplier Orders (Restocking)</h1>
                 <div class="header-actions">
-                    <button class="btn" onclick="exportToExcel()">
-                        <i class="fas fa-print"></i> Print Records
-                    </button>
-                    <button class="btn">
-                        <i class="fas fa-filter"></i>
-                    </button>
-                    <button class="btn" onclick="exportOrders()">Exporting</button>
-                    <button class="btn" onclick="importOrders()">Import Orders</button>
                     <button class="btn btn-primary" onclick="openCreateOrderModal()">
-                        <i class="fas fa-plus"></i> New Orders
+                        <i class="fas fa-plus"></i> Resupply Products
                     </button>
                 </div>
             </div>
@@ -179,78 +269,85 @@ $products = $products_result->fetch_all(MYSQLI_ASSOC);
             <div class="order-filters">
                 <div class="search-box">
                     <i class="fas fa-search"></i>
-                    <input type="text" id="searchOrder" placeholder="Search order ID">
+                    <input type="text" id="searchOrder" placeholder="Search by supplier or product...">
                 </div>
-                
-                <div class="filter-group">
-                    <button class="btn" onclick="showDatePicker()">
-                        <i class="fas fa-calendar"></i>
-                    </button>
-                    <select id="salesFilter" onchange="filterOrders()">
-                        <option value="">Sales</option>
-                        <option value="online">Online</option>
-                        <option value="store">Store</option>
-                    </select>
+                  <div class="filter-group">
                     <select id="statusFilter" onchange="filterOrders()">
-                        <option value="">Status</option>
-                        <option value="pending">Pending</option>
-                        <option value="processing">Processing</option>
-                        <option value="completed">Completed</option>
+                        <option value="">All Status</option>
+                        <option value="ordered">Ordered</option>
+                        <option value="delivered">Delivered</option>
                         <option value="cancelled">Cancelled</option>
                     </select>
-                    <button class="btn" onclick="showMoreFilters()">
-                        <i class="fas fa-sliders-h"></i> Filter
-                    </button>
                 </div>
             </div>
 
             <?php if (isset($success)): ?>
-                <div class="alert alert-success"><?php echo $success; ?></div>
+                <div class="alert alert-success"><?php echo htmlspecialchars($success); ?></div>
             <?php endif; ?>
 
             <?php if (isset($error)): ?>
-                <div class="alert alert-danger"><?php echo $error; ?></div>
+                <div class="alert alert-danger"><?php echo htmlspecialchars($error); ?></div>
             <?php endif; ?>
 
-            <!-- Orders Table -->
+            <!-- Supplier Orders Table -->
             <div class="card">
-                <div class="card-body">                    <table class="table">
-                <thead>
+                <div class="card-body">
+                    <table class="table">
+                        <thead>
                             <tr>
-                                <th style="text-align: center;"><input type="checkbox" id="selectAll"></th>
-                                <th style="text-align: center;">Order ID</th>
-                                <th style="text-align: center;">Date</th>
-                                <th style="text-align: center;">Customer</th>
-                                <th style="text-align: center;">Sales Channel</th>
-                                <th style="text-align: center;">Destination</th>
-                                <th style="text-align: center;">Items</th>
-                                <th style="text-align: center;">Status</th>
-                                <th style="text-align: center;">Actions</th>
+                                <th>Order ID</th>
+                                <th>Supplier Info</th>
+                                <th>Product</th>
+                                <th>Qty Ordered</th>
+                                <th>Qty Received</th>
+                                <th>Unit Price</th>
+                                <th>Total Amount</th>
+                                <th>Order Date</th>
+                                <th>Expected Date</th>
+                                <th>Status</th>
+                                <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <?php foreach ($orders as $order): ?>
+                            <?php foreach ($supplier_orders as $order): ?>
                             <tr>
-                                <td><input type="checkbox" class="order-select" value="<?php echo $order['id']; ?>"></td>                                <td>#<?php echo htmlspecialchars($order['id']); ?></td>
-                                <td><?php echo date('m/d/Y', strtotime($order['created_at'])); ?></td>
-                                <td>Customer Order</td>
-                                <td><?php echo htmlspecialchars($order['sales_channel'] ?? 'Store name'); ?></td>
-                                <td><?php echo htmlspecialchars($order['destination'] ?? 'Lalitpur'); ?></td>
-                                <td><?php echo count($order['items']); ?></td>
-                                <td><span class="status-badge <?php echo strtolower($order['status'] ?? 'pending'); ?>">
-                                        <?php echo ucfirst($order['status'] ?? 'pending'); ?>
+                                <td>#<?php echo htmlspecialchars($order['id']); ?></td>
+                                <td>
+                                    <strong><?php echo htmlspecialchars($order['supplier_name']); ?></strong><br>
+                                    <small>
+                                        <i class="fas fa-envelope"></i> <?php echo htmlspecialchars($order['supplier_email']); ?><br>
+                                        <i class="fas fa-phone"></i> <?php echo htmlspecialchars($order['supplier_phone']); ?>
+                                    </small>
+                                </td>
+                                <td>
+                                    <?php echo htmlspecialchars($order['product_name']); ?><br>
+                                    <small>Current Stock: <?php echo $order['current_stock'] ?? 'N/A'; ?></small>
+                                </td>
+                                <td><?php echo htmlspecialchars($order['quantity_ordered']); ?></td>
+                                <td><?php echo htmlspecialchars($order['quantity_received']); ?></td>
+                                <td>$<?php echo number_format($order['unit_price'], 2); ?></td>
+                                <td>$<?php echo number_format($order['total_amount'], 2); ?></td>
+                                <td><?php echo date('M j, Y', strtotime($order['order_date'])); ?></td>
+                                <td><?php echo $order['expected_delivery_date'] ? date('M j, Y', strtotime($order['expected_delivery_date'])) : 'N/A'; ?></td>
+                                <td>
+                                    <span class="status-badge <?php echo strtolower($order['status']); ?>">
+                                        <?php echo ucfirst($order['status']); ?>
                                     </span>
                                 </td>
                                 <td>
                                     <button class="btn btn-sm btn-primary" onclick="updateOrderStatus(<?php echo $order['id']; ?>)">
-                                        <i class="fas fa-edit"></i> Edit Status
+                                        <i class="fas fa-edit"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-danger" onclick="deleteOrder(<?php echo $order['id']; ?>)">
+                                        <i class="fas fa-trash"></i>
                                     </button>
                                 </td>
                             </tr>
                             <?php endforeach; ?>
-                            <?php if (empty($orders)): ?>
+                            
+                            <?php if (empty($supplier_orders)): ?>
                             <tr>
-                                <td colspan="7" class="text-center">No orders found</td>
+                                <td colspan="11" class="text-center">No supplier orders found</td>
                             </tr>
                             <?php endif; ?>
                         </tbody>
@@ -258,53 +355,65 @@ $products = $products_result->fetch_all(MYSQLI_ASSOC);
                 </div>
             </div>
         </main>
-    </div>
-
-    <!-- Create Order Modal -->
+    </div>    <!-- Create Supplier Order Modal -->
     <div id="createOrderModal" class="modal">
         <div class="modal-content">
-            <h2>Create New Order</h2>            <form method="POST" class="order-form" id="createOrderForm">
+            <h2>Resupply Products</h2>
+            <form method="POST" class="order-form">
                 <input type="hidden" name="action" value="create_order">
-                <input type="hidden" name="items" id="orderItems">
+                
                 <div class="form-group">
-                    <label for="sales_channel">Sales Channel</label>
-                    <select id="sales_channel" name="sales_channel" required class="form-control">
-                        <option value="store">Store</option>
-                        <option value="online">Online</option>
-                    </select>
-                </div>
-
-                <div class="form-group">
-                    <label for="destination">Destination</label>
-                    <input type="text" id="destination" name="destination" required class="form-control" value="Lalitpur">
-                </div>
-
-                <div class="form-group">
-                    <label>Add Products</label>
-                    <div class="product-selection">
-                        <select id="productSelect" class="form-control">
-                            <option value="">Select a product...</option>
-                            <?php foreach ($products as $product): ?>
-                            <option value="<?php echo $product['id']; ?>" 
-                                    data-price="<?php echo $product['price']; ?>"
-                                    data-max="<?php echo $product['quantity']; ?>">
-                                <?php echo htmlspecialchars($product['name']); ?> 
-                                ($<?php echo number_format($product['price'], 2); ?>) - 
-                                <?php echo $product['quantity']; ?> in stock
+                    <label for="supplier_id">Supplier</label>
+                    <div class="supplier-selection">
+                        <select id="supplier_id" name="supplier_id" required class="form-control">
+                            <option value="">Select a supplier...</option>
+                            <?php foreach ($suppliers as $supplier): ?>
+                            <option value="<?php echo $supplier['id']; ?>">
+                                <?php echo htmlspecialchars($supplier['name']); ?> - <?php echo htmlspecialchars($supplier['email']); ?>
                             </option>
                             <?php endforeach; ?>
                         </select>
-                        <input type="number" id="quantityInput" min="1" value="1" class="form-control">
-                        <button type="button" class="btn btn-primary" onclick="addProductToOrder()">Add</button>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="openCreateSupplierModal()">
+                            <i class="fas fa-plus"></i> New Supplier
+                        </button>
                     </div>
                 </div>
 
-                <div class="selected-products">
-                    <h3>Selected Products</h3>
-                    <div id="selectedProductsList"></div>
-                    <div class="order-total">
-                        Total: $<span id="orderTotal">0.00</span>
+                <div class="form-group">
+                    <label for="product_id">Product to Restock</label>
+                    <div class="product-selection">
+                        <select id="product_id" name="product_id" required class="form-control">
+                            <option value="">Select a product...</option>
+                            <?php foreach ($products as $product): ?>
+                            <option value="<?php echo $product['id']; ?>">
+                                <?php echo htmlspecialchars($product['name']); ?> (Current: <?php echo $product['quantity']; ?>)
+                            </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="openCreateProductModal()">
+                            <i class="fas fa-plus"></i> New Product
+                        </button>
                     </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="quantity_ordered">Quantity to Order</label>
+                    <input type="number" id="quantity_ordered" name="quantity_ordered" required min="1" class="form-control">
+                </div>
+
+                <div class="form-group">
+                    <label for="unit_price">Unit Price ($)</label>
+                    <input type="number" id="unit_price" name="unit_price" required min="0" step="0.01" class="form-control">
+                </div>
+
+                <div class="form-group">
+                    <label for="expected_delivery_date">Expected Delivery Date</label>
+                    <input type="date" id="expected_delivery_date" name="expected_delivery_date" class="form-control">
+                </div>
+
+                <div class="form-group">
+                    <label for="notes">Notes</label>
+                    <textarea id="notes" name="notes" class="form-control" rows="3" placeholder="Additional notes or instructions..."></textarea>
                 </div>
 
                 <div class="form-actions">
@@ -322,85 +431,111 @@ $products = $products_result->fetch_all(MYSQLI_ASSOC);
             <form method="POST" class="status-form">
                 <input type="hidden" name="action" value="update_status">
                 <input type="hidden" name="order_id" id="update_order_id">
-                
-                <div class="form-group">
+                  <div class="form-group">
                     <label for="status">Status</label>
                     <select id="status" name="status" required class="form-control">
-                        <option value="pending">Pending</option>
-                        <option value="processing">Processing</option>
-                        <option value="completed">Completed</option>
+                        <option value="ordered">Ordered</option>
+                        <option value="delivered">Delivered</option>
                         <option value="cancelled">Cancelled</option>
                     </select>
                 </div>
 
-                <div class="form-actions">
+                <div class="form-group" id="quantityReceivedGroup" style="display: none;">
+                    <label for="quantity_received">Quantity Received</label>
+                    <input type="number" id="quantity_received" name="quantity_received" min="0" class="form-control">
+                    <small class="form-text">Enter the actual quantity received (this will update inventory)</small>
+                </div>                <div class="form-actions">
                     <button type="submit" class="btn btn-primary">Update Status</button>
                     <button type="button" class="btn btn-secondary" onclick="closeUpdateStatusModal()">Cancel</button>
                 </div>
             </form>
         </div>
-    </div>    <script>
-        let selectedProducts = [];
-        let orderTotal = 0;
+    </div>
 
-        // Export to Excel function
-        function exportToExcel() {
-            const filters = getActiveFilters();
-            const queryString = new URLSearchParams(filters).toString();
-            window.location.href = 'export_orders.php?' + queryString;
-        }
-
-        // Get active filters
-        function getActiveFilters() {
-            const filters = {};
-            const status = document.getElementById('statusFilter').value;
-            const sales = document.getElementById('salesFilter').value;
-            
-            if (status) filters.status = status;
-            if (sales) filters.sales = sales;
-            
-            return filters;
-        }
-
-        // Filter orders function
-        function filterOrders() {
-            const searchValue = document.getElementById('searchOrder').value.toLowerCase();
-            const statusFilter = document.getElementById('statusFilter').value.toLowerCase();
-            const salesFilter = document.getElementById('salesFilter').value.toLowerCase();
-            
-            const rows = document.querySelectorAll('tbody tr');
-            
-            rows.forEach(row => {
-                const orderIdCell = row.cells[1].textContent.toLowerCase();
-                const statusCell = row.cells[7].textContent.toLowerCase();
-                const salesCell = row.cells[4].textContent.toLowerCase();
+    <!-- Create New Supplier Modal -->
+    <div id="createSupplierModal" class="modal">
+        <div class="modal-content">
+            <h2>Add New Supplier</h2>
+            <form method="POST" class="supplier-form">
+                <input type="hidden" name="action" value="create_supplier">
                 
-                const matchesSearch = orderIdCell.includes(searchValue);
-                const matchesStatus = !statusFilter || statusCell.includes(statusFilter);
-                const matchesSales = !salesFilter || salesCell.includes(salesFilter);
+                <div class="form-group">
+                    <label for="supplier_name">Supplier Name</label>
+                    <input type="text" id="supplier_name" name="supplier_name" required class="form-control">
+                </div>
+
+                <div class="form-group">
+                    <label for="supplier_email">Email</label>
+                    <input type="email" id="supplier_email" name="supplier_email" required class="form-control">
+                </div>
+
+                <div class="form-group">
+                    <label for="supplier_phone">Phone Number</label>
+                    <input type="tel" id="supplier_phone" name="supplier_phone" required class="form-control">
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Add Supplier</button>
+                    <button type="button" class="btn btn-secondary" onclick="closeCreateSupplierModal()">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Create New Product Modal -->
+    <div id="createProductModal" class="modal">
+        <div class="modal-content">
+            <h2>Add New Product</h2>
+            <form method="POST" class="product-form">
+                <input type="hidden" name="action" value="create_product">
                 
-                row.style.display = matchesSearch && matchesStatus && matchesSales ? '' : 'none';
-            });
-        }
+                <div class="form-group">
+                    <label for="product_name">Product Name</label>
+                    <input type="text" id="product_name" name="product_name" required class="form-control">
+                </div>
 
-        // Select all checkbox functionality
-        document.getElementById('selectAll').addEventListener('change', function() {
-            const checkboxes = document.querySelectorAll('.order-select');
-            checkboxes.forEach(checkbox => checkbox.checked = this.checked);
-        });
+                <div class="form-group">
+                    <label for="product_price">Unit Price ($)</label>
+                    <input type="number" id="product_price" name="product_price" required min="0" step="0.01" class="form-control">
+                </div>
 
-        // Search functionality
-        document.getElementById('searchOrder').addEventListener('keyup', function() {
-            filterOrders();
-        });
+                <div class="form-group">
+                    <label for="alert_quantity">Alert Quantity (Low Stock Warning)</label>
+                    <input type="number" id="alert_quantity" name="alert_quantity" required min="0" class="form-control" value="10">
+                    <small class="form-text">System will alert when stock falls below this level</small>
+                </div>
 
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Add Product</button>
+                    <button type="button" class="btn btn-secondary" onclick="closeCreateProductModal()">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>        // Modal functions
         function openCreateOrderModal() {
             document.getElementById('createOrderModal').style.display = 'block';
-            resetOrderForm();
         }
 
         function closeCreateOrderModal() {
             document.getElementById('createOrderModal').style.display = 'none';
+        }
+
+        function openCreateSupplierModal() {
+            document.getElementById('createSupplierModal').style.display = 'block';
+        }
+
+        function closeCreateSupplierModal() {
+            document.getElementById('createSupplierModal').style.display = 'none';
+        }
+
+        function openCreateProductModal() {
+            document.getElementById('createProductModal').style.display = 'block';
+        }
+
+        function closeCreateProductModal() {
+            document.getElementById('createProductModal').style.display = 'none';
         }
 
         function openUpdateStatusModal() {
@@ -415,92 +550,80 @@ $products = $products_result->fetch_all(MYSQLI_ASSOC);
             document.getElementById('update_order_id').value = orderId;
             
             // Find the current status of the order
-            const orderRow = document.querySelector(`tr input[value="${orderId}"]`).closest('tr');
+            const orderRow = document.querySelector(`td:first-child`).parentElement;
             const currentStatus = orderRow.querySelector('.status-badge').textContent.trim().toLowerCase();
             
             // Set the current status in the modal
             document.getElementById('status').value = currentStatus;
             
+            // Show quantity received field if status is delivered
+            toggleQuantityReceivedField();
+            
             openUpdateStatusModal();
         }
 
-        function addProductToOrder() {
-            const select = document.getElementById('productSelect');
-            const quantity = parseInt(document.getElementById('quantityInput').value);
-            
-            if (select.value && quantity > 0) {
-                const option = select.options[select.selectedIndex];
-                const productId = parseInt(select.value);
-                const maxQuantity = parseInt(option.dataset.max);
-                const price = parseFloat(option.dataset.price);
-                
-                if (quantity > maxQuantity) {
-                    alert(`Only ${maxQuantity} items available in stock`);
-                    return;
-                }
-                
-                // Check if product is already in order
-                const existingProduct = selectedProducts.find(p => p.product_id === productId);
-                if (existingProduct) {
-                    if (existingProduct.quantity + quantity > maxQuantity) {
-                        alert(`Cannot add more items. Only ${maxQuantity} items available in stock`);
-                        return;
-                    }
-                    existingProduct.quantity += quantity;
-                } else {
-                    selectedProducts.push({
-                        product_id: productId,
-                        name: option.text.split(' (')[0],
-                        quantity: quantity,
-                        price: price
-                    });
-                }
-                
-                updateSelectedProductsList();
-                select.value = '';
-                document.getElementById('quantityInput').value = 1;
+        function deleteOrder(orderId) {
+            if (confirm('Are you sure you want to delete this supplier order?')) {
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.innerHTML = `
+                    <input type="hidden" name="action" value="delete_order">
+                    <input type="hidden" name="order_id" value="${orderId}">
+                `;
+                document.body.appendChild(form);
+                form.submit();
             }
         }
 
-        function removeProduct(index) {
-            selectedProducts.splice(index, 1);
-            updateSelectedProductsList();
+        // Show/hide quantity received field based on status
+        function toggleQuantityReceivedField() {
+            const status = document.getElementById('status').value;
+            const quantityGroup = document.getElementById('quantityReceivedGroup');
+            
+            if (status === 'delivered') {
+                quantityGroup.style.display = 'block';
+                document.getElementById('quantity_received').required = true;
+            } else {
+                quantityGroup.style.display = 'none';
+                document.getElementById('quantity_received').required = false;
+            }
         }
 
-        function updateSelectedProductsList() {
-            const list = document.getElementById('selectedProductsList');
-            orderTotal = 0;
-            
-            let html = '<ul class="selected-products-list">';
-            selectedProducts.forEach((product, index) => {
-                const subtotal = product.price * product.quantity;
-                orderTotal += subtotal;
-                html += `
-                    <li>
-                        ${product.quantity}x ${product.name} - $${product.price} each
-                        <span class="subtotal">$${subtotal.toFixed(2)}</span>
-                        <button type="button" class="btn btn-sm btn-danger" onclick="removeProduct(${index})">
-                            <i class="fas fa-times"></i>
-                        </button>
-                    </li>
-                `;
+        // Add event listener for status change
+        document.getElementById('status').addEventListener('change', toggleQuantityReceivedField);
+
+        // Search functionality
+        document.getElementById('searchOrder').addEventListener('keyup', function() {
+            const searchValue = this.value.toLowerCase();
+            const rows = document.querySelectorAll('tbody tr');
+
+            rows.forEach(row => {
+                if (row.children.length > 1) {
+                    const supplierName = row.children[1].textContent.toLowerCase();
+                    const productName = row.children[2].textContent.toLowerCase();
+                    const orderId = row.children[0].textContent.toLowerCase();
+                    
+                    const shouldShow = supplierName.includes(searchValue) || 
+                                     productName.includes(searchValue) || 
+                                     orderId.includes(searchValue);
+                    row.style.display = shouldShow ? '' : 'none';
+                }
             });
-            html += '</ul>';
-            
-            list.innerHTML = html;
-            document.getElementById('orderTotal').textContent = orderTotal.toFixed(2);
-            document.getElementById('orderItems').value = JSON.stringify(selectedProducts);
-        }
+        });
 
-        function resetOrderForm() {
-            selectedProducts = [];
-            orderTotal = 0;
-            updateSelectedProductsList();
-            document.getElementById('productSelect').value = '';
-            document.getElementById('quantityInput').value = 1;
-        }
+        // Filter by status
+        function filterOrders() {
+            const statusFilter = document.getElementById('statusFilter').value.toLowerCase();
+            const rows = document.querySelectorAll('tbody tr');
 
-        // Close modals when clicking outside
+            rows.forEach(row => {
+                if (row.children.length > 1) {
+                    const status = row.children[9].textContent.toLowerCase();
+                    const shouldShow = !statusFilter || status.includes(statusFilter);
+                    row.style.display = shouldShow ? '' : 'none';
+                }
+            });
+        }        // Close modals when clicking outside
         window.onclick = function(event) {
             if (event.target == document.getElementById('createOrderModal')) {
                 closeCreateOrderModal();
@@ -508,286 +631,295 @@ $products = $products_result->fetch_all(MYSQLI_ASSOC);
             if (event.target == document.getElementById('updateStatusModal')) {
                 closeUpdateStatusModal();
             }
-        }
-
-        // Add these styles to your existing CSS
-        document.head.insertAdjacentHTML('beforeend', `
-            <style>
-                .table {
-                    width: 100%;
-                    border-collapse: separate;
-                    border-spacing: 0;
-                    margin: 1rem 0;
-                }
-
-                .table th,
-                .table td {
-                    padding: 1rem;
-                    text-align: center;
-                    vertical-align: middle;
-                }
-
-                .table th {
-                    background-color: #f8fafc;
-                    font-weight: 600;
-                    text-transform: uppercase;
-                    font-size: 0.875rem;
-                    letter-spacing: 0.05em;
-                }
-
-                .table tr {
-                    background-color: #ffffff;
-                }
-
-                .table tr:hover {
-                    background-color: #f9fafb;
-                }
-
-                .status-badge {
-                    display: inline-block;
-                    padding: 0.5rem 1rem;
-                    border-radius: 9999px;
-                    font-size: 0.875rem;
-                    font-weight: 500;
-                }
-
-                .status-badge.pending {
-                    background-color: #fff3e0;
-                    color: #f57c00;
-                }
-
-                .status-badge.processing {
-                    background-color: #e3f2fd;
-                    color: #1976d2;
-                }
-
-                .status-badge.completed {
-                    background-color: #e8f5e9;
-                    color: #2e7d32;
-                }
-
-                .status-badge.cancelled {
-                    background-color: #ffebee;
-                    color: #c62828;
-                }
-
-                .card {
-                    background: white;
-                    border-radius: 0.5rem;
-                    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-                    margin: 1rem auto;
-                    max-width: 1200px;
-                }
-
-                .card-body {
-                    padding: 1.5rem;
-                }
-
-                .order-filters {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    margin: 1rem auto;
-                    max-width: 1200px;
-                    padding: 1rem;
-                    background: white;
-                    border-radius: 0.5rem;
-                    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-                }
-
-                .search-box {
-                    position: relative;
-                    flex: 1;
-                    max-width: 300px;
-                }
-
-                .search-box input {
-                    width: 100%;
-                    padding: 0.5rem 1rem 0.5rem 2.5rem;
-                    border: 1px solid #e5e7eb;
-                    border-radius: 0.375rem;
-                }
-
-                .search-box i {
-                    position: absolute;
-                    left: 0.75rem;
-                    top: 50%;
-                    transform: translateY(-50%);
-                    color: #6b7280;
-                }
-
-                .filter-group {
-                    display: flex;
-                    gap: 0.5rem;
-                    align-items: center;
-                }
-
-                .content-header {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    margin: 1rem auto;
-                    max-width: 1200px;
-                    padding: 1rem;
-                }
-
-                .header-actions {
-                    display: flex;
-                    gap: 0.5rem;
-                }
-
-                .btn {
-                    display: inline-flex;
-                    align-items: center;
-                    padding: 0.5rem 1rem;
-                    border: 1px solid #e5e7eb;
-                    border-radius: 0.375rem;
-                    background: white;
-                    font-size: 0.875rem;
-                    font-weight: 500;
-                    color: #374151;
-                    cursor: pointer;
-                    transition: all 0.2s;
-                }
-
-                .btn i {
-                    margin-right: 0.5rem;
-                }
-
-                .btn:hover {
-                    background: #f9fafb;
-                    border-color: #d1d5db;
-                }
-
-                .btn-primary {
-                    background: #1d4ed8;
-                    color: white;
-                    border: none;
-                }
-
-                .btn-primary:hover {
-                    background: #1e40af;
-                }
-            </style>
-        `);
-
-        function exportOrders() {
-            const checkboxes = document.querySelectorAll('.order-select:checked');
-            const selectedIds = Array.from(checkboxes).map(cb => cb.value);
-            
-            if (selectedIds.length === 0) {
-                // If no orders are selected, export all filtered orders
-                exportToExcel();
-            } else {
-                // Export only selected orders
-                const queryString = new URLSearchParams({
-                    ids: selectedIds.join(','),
-                    ...getActiveFilters()
-                }).toString();
-                window.location.href = 'export_orders.php?' + queryString;
+            if (event.target == document.getElementById('createSupplierModal')) {
+                closeCreateSupplierModal();
             }
-        }
-
-        function importOrders() {
-            window.location.href = 'import_orders.php';
-        }
-
-        // Add filter functionality
-        function showDatePicker() {
-            const dateFrom = document.createElement('input');
-            dateFrom.type = 'date';
-            dateFrom.id = 'dateFrom';
-            dateFrom.onchange = filterOrders;
-            
-            const dateTo = document.createElement('input');
-            dateTo.type = 'date';
-            dateTo.id = 'dateTo';
-            dateTo.onchange = filterOrders;
-            
-            const container = document.querySelector('.filter-group');
-            container.insertBefore(dateTo, container.firstChild);
-            container.insertBefore(dateFrom, container.firstChild);
-        }
-
-        function showMoreFilters() {
-            // Implement additional filters here
-            const filterModal = document.createElement('div');
-            filterModal.className = 'modal';
-            filterModal.innerHTML = `
-                <div class="modal-content">
-                    <h2>Advanced Filters</h2>
-                    <div class="form-group">
-                        <label>Price Range</label>
-                        <div class="range-inputs">
-                            <input type="number" placeholder="Min" id="priceMin">
-                            <input type="number" placeholder="Max" id="priceMax">
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label>Items Count</label>
-                        <div class="range-inputs">
-                            <input type="number" placeholder="Min" id="itemsMin">
-                            <input type="number" placeholder="Max" id="itemsMax">
-                        </div>
-                    </div>
-                    <div class="form-actions">
-                        <button class="btn btn-primary" onclick="applyAdvancedFilters()">Apply Filters</button>
-                        <button class="btn" onclick="closeAdvancedFilters()">Cancel</button>
-                    </div>
-                </div>
-            `;
-            document.body.appendChild(filterModal);
-            filterModal.style.display = 'block';
-        }
-
-        function applyAdvancedFilters() {
-            // Implement advanced filter logic here
-            const priceMin = document.getElementById('priceMin').value;
-            const priceMax = document.getElementById('priceMax').value;
-            const itemsMin = document.getElementById('itemsMin').value;
-            const itemsMax = document.getElementById('itemsMax').value;
-            
-            filterOrders();
-            closeAdvancedFilters();
-        }
-
-        function closeAdvancedFilters() {
-            const modal = document.querySelector('.modal');
-            if (modal) {
-                modal.remove();
+            if (event.target == document.getElementById('createProductModal')) {
+                closeCreateProductModal();
             }
-        }
-
-        // Update filter function to include all filters
-        function filterOrders() {
-            const rows = document.querySelectorAll('tbody tr');
-            const filters = getActiveFilters();
-            
-            rows.forEach(row => {
-                const matches = Object.entries(filters).every(([key, value]) => {
-                    if (!value) return true;
-                    
-                    switch(key) {
-                        case 'search':
-                            return row.cells[1].textContent.toLowerCase().includes(value.toLowerCase());
-                        case 'status':
-                            return row.cells[7].textContent.toLowerCase() === value.toLowerCase();
-                        case 'sales':
-                            return row.cells[4].textContent.toLowerCase().includes(value.toLowerCase());
-                        case 'dateFrom':
-                            const orderDate = new Date(row.cells[2].textContent);
-                            return orderDate >= new Date(value);
-                        case 'dateTo':
-                            const orderDateTo = new Date(row.cells[2].textContent);
-                            return orderDateTo <= new Date(value);
-                        default:
-                            return true;
-                    }
-                });
-                
-                row.style.display = matches ? '' : 'none';
-            });
         }
     </script>
+
+    <style>
+        .alert {
+            padding: 1rem;
+            margin: 1rem auto;
+            max-width: 1200px;
+            border-radius: 0.375rem;
+        }
+        
+        .alert-success {
+            background-color: #d1fae5;
+            border: 1px solid #6ee7b7;
+            color: #065f46;
+        }
+        
+        .alert-danger {
+            background-color: #fee2e2;
+            border: 1px solid #fca5a5;
+            color: #991b1b;
+        }
+        
+        .table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 1rem 0;
+        }
+
+        .table th,
+        .table td {
+            padding: 0.75rem;
+            text-align: left;
+            vertical-align: middle;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .table th {
+            background-color: #f8fafc;
+            font-weight: 600;
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .table tr:hover {
+            background-color: #f9fafb;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            text-transform: uppercase;
+        }
+
+        .status-badge.pending {
+            background-color: #fef3c7;
+            color: #92400e;
+        }
+
+        .status-badge.ordered {
+            background-color: #dbeafe;
+            color: #1e40af;
+        }
+
+        .status-badge.shipped {
+            background-color: #e0e7ff;
+            color: #3730a3;
+        }
+
+        .status-badge.delivered {
+            background-color: #d1fae5;
+            color: #065f46;
+        }
+
+        .status-badge.cancelled {
+            background-color: #fee2e2;
+            color: #991b1b;
+        }
+
+        .card {
+            background: white;
+            border-radius: 0.5rem;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            margin: 1rem auto;
+            max-width: 1200px;
+            overflow-x: auto;
+        }
+
+        .card-body {
+            padding: 1.5rem;
+        }
+
+        .order-filters {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 1rem auto;
+            max-width: 1200px;
+            padding: 1rem;
+            background: white;
+            border-radius: 0.5rem;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .search-box {
+            position: relative;
+            flex: 1;
+            max-width: 400px;
+        }
+
+        .search-box input {
+            width: 100%;
+            padding: 0.5rem 1rem 0.5rem 2.5rem;
+            border: 1px solid #e5e7eb;
+            border-radius: 0.375rem;
+        }
+
+        .search-box i {
+            position: absolute;
+            left: 0.75rem;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #6b7280;
+        }
+
+        .filter-group {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        .content-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 1rem auto;
+            max-width: 1200px;
+            padding: 1rem;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.5rem 1rem;
+            border: 1px solid #e5e7eb;
+            border-radius: 0.375rem;
+            background: white;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: #374151;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-decoration: none;
+        }
+
+        .btn i {
+            margin-right: 0.5rem;
+        }
+
+        .btn:hover {
+            background: #f9fafb;
+            border-color: #d1d5db;
+        }
+
+        .btn-primary {
+            background: #1d4ed8;
+            color: white;
+            border: none;
+        }
+
+        .btn-primary:hover {
+            background: #1e40af;
+        }
+
+        .btn-secondary {
+            background: #6b7280;
+            color: white;
+            border: none;
+        }
+
+        .btn-secondary:hover {
+            background: #4b5563;
+        }
+
+        .btn-danger {
+            background: #dc2626;
+            color: white;
+            border: none;
+        }
+
+        .btn-danger:hover {
+            background: #b91c1c;
+        }
+
+        .btn-sm {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.75rem;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-content {
+            background-color: white;
+            margin: 5% auto;
+            padding: 2rem;
+            border-radius: 0.5rem;
+            width: 90%;
+            max-width: 600px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 0.5rem 1rem;
+            border: 1px solid #e5e7eb;
+            border-radius: 0.375rem;
+            font-size: 0.875rem;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: #1d4ed8;
+            box-shadow: 0 0 0 3px rgba(29, 78, 216, 0.1);
+        }
+
+        .form-actions {
+            display: flex;
+            gap: 0.5rem;
+            justify-content: flex-end;
+            margin-top: 1.5rem;
+        }
+
+        .form-text {
+            font-size: 0.75rem;
+            color: #6b7280;
+            margin-top: 0.25rem;
+        }        .text-center {
+            text-align: center;
+        }
+
+        .supplier-selection, .product-selection {
+            display: flex;
+            gap: 0.5rem;
+            align-items: flex-end;
+        }
+
+        .supplier-selection select, .product-selection select {
+            flex: 1;
+        }
+
+        .supplier-selection .btn, .product-selection .btn {
+            white-space: nowrap;
+            margin-bottom: 0;
+        }</style>
 </body>
 </html>
