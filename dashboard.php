@@ -76,16 +76,17 @@ if ($result && $row = $result->fetch_assoc()) {
     $order_stats = $row;
 }
 
-// Get recent orders
-function getRecentOrders($conn) {
+// Get recent sales (completed orders only)
+function getRecentSales($conn) {
     $sql = "SELECT o.*
             FROM orders o
+            WHERE o.status = 'completed'
             ORDER BY o.created_at DESC
             LIMIT 5";
     return $conn->query($sql)->fetch_all(MYSQLI_ASSOC);
 }
 
-$recent_orders = getRecentOrders($conn);
+$recent_sales = getRecentSales($conn);
 
 $page_title = "Dashboard";
 ?>
@@ -163,12 +164,11 @@ $page_title = "Dashboard";
             </div>
 
             <!-- Data Tables -->
-            <div class="data-tables">
-                <!-- Recent Orders Table -->
+            <div class="data-tables">                <!-- Recent Sales Table -->
                 <div class="table-section">
                     <div class="section-header">
-                        <h2>Recent Orders</h2>
-                        <a href="order.php" class="btn btn-primary">View All Orders</a>
+                        <h2>Recent Sales</h2>
+                        <a href="sales.php" class="btn btn-primary">View All Sales</a>
                     </div>
                     <table>                        <thead>
                             <tr>
@@ -178,23 +178,22 @@ $page_title = "Dashboard";
                                 <th>Status</th>
                                 <th>Date</th>
                             </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($recent_orders as $order): ?>                            <tr>
-                                <td>#<?php echo $order['id']; ?></td>
+                        </thead>                        <tbody>
+                            <?php foreach ($recent_sales as $sale): ?>                            <tr>
+                                <td>#<?php echo $sale['id']; ?></td>
                                 <td>Customer Order</td>
-                                <td>₹<?php echo number_format($order['total_amount'], 2); ?></td>
+                                <td>$<?php echo number_format($sale['total_amount'], 2); ?></td>
                                 <td>
-                                    <span class="status-badge <?php echo strtolower($order['status']); ?>">
-                                        <?php echo ucfirst($order['status']); ?>
+                                    <span class="status-badge <?php echo strtolower($sale['status']); ?>">
+                                        <?php echo ucfirst($sale['status']); ?>
                                     </span>
                                 </td>
-                                <td><?php echo date('M j, Y', strtotime($order['created_at'])); ?></td>
+                                <td><?php echo date('M j, Y', strtotime($sale['created_at'])); ?></td>
                             </tr>
                             <?php endforeach; ?>
-                            <?php if (empty($recent_orders)): ?>
+                            <?php if (empty($recent_sales)): ?>
                             <tr>
-                                <td colspan="5" class="text-center">No orders found</td>
+                                <td colspan="5" class="text-center">No sales found</td>
                             </tr>
                             <?php endif; ?>
                         </tbody>
@@ -240,32 +239,8 @@ $page_title = "Dashboard";
                             <tr>
                                 <td colspan="4" class="no-data">No low stock items</td>
                             </tr>
-                            <?php endif; ?>
-                        </tbody>                    </table>
+                            <?php endif; ?>                        </tbody>                    </table>
                 </div>
-
-                <?php if (getCurrentUserRole($conn) === 'admin'): ?>
-                <!-- Admin User Management Section -->
-                <div class="table-section">
-                    <div class="section-header">
-                        <h2>User Management</h2>
-                        <a href="admin/users_crud.php" class="btn btn-primary">Manage All Users</a>
-                    </div>
-                    <div style="padding: 20px; text-align: center; background: #f8f9fa; border-radius: 8px;">
-                        <i class="fas fa-users" style="font-size: 48px; color: #667eea; margin-bottom: 15px;"></i>
-                        <h3 style="margin: 0 0 10px 0; color: #333;">User Management</h3>
-                        <p style="margin: 0 0 20px 0; color: #666;">Create, edit, and manage user accounts and roles</p>
-                        <div style="display: flex; gap: 10px; justify-content: center;">
-                            <a href="admin/users_crud.php?action=create" class="btn" style="background: #28a745; color: white; padding: 8px 16px; text-decoration: none; border-radius: 4px;">
-                                <i class="fas fa-plus"></i> Add New User
-                            </a>
-                            <a href="admin/users_crud.php" class="btn" style="background: #667eea; color: white; padding: 8px 16px; text-decoration: none; border-radius: 4px;">
-                                <i class="fas fa-list"></i> View All Users
-                            </a>
-                        </div>
-                    </div>
-                </div>
-                <?php endif; ?>
             </div>
         </main>
     </div>
