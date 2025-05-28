@@ -1,0 +1,25 @@
+{
+    "name": "inventory-system/management",
+    "description": "A complete inventory management system with role-based access control",
+    "type": "project",
+    "version": "1.0.0",
+    "require": {
+        "php": ">=7.4"
+    },
+    "autoload": {
+        "files": [
+            "config/db.php",
+            "config/auth.php"
+        ]
+    },
+    "config": {
+        "platform": {
+            "php": "7.4"
+        }
+    },
+    "scripts": {
+        "post-install-cmd": [
+            "echo 'Please configure your database settings in config/db.php'"
+        ]
+    }
+}
