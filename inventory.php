@@ -10,19 +10,30 @@ $current_user_role = getCurrentUserRole($conn);
 
 // Function to get all products
 function getAllProducts($conn) {
+    // Check if quantity_arrived column exists
+    $check_quantity_arrived = $conn->query("SHOW COLUMNS FROM products LIKE 'quantity_arrived'");
+    $has_quantity_arrived = $check_quantity_arrived && $check_quantity_arrived->num_rows > 0;
+    
+    if (!$has_quantity_arrived) {
+        // Add missing quantity_arrived column
+        $conn->query("ALTER TABLE products ADD COLUMN quantity_arrived INT DEFAULT 0 AFTER quantity");
+        // Update existing products
+        $conn->query("UPDATE products SET quantity_arrived = quantity WHERE quantity_arrived = 0 OR quantity_arrived IS NULL");
+    }
+    
     $sql = "SELECT * FROM products ORDER BY id ASC";
     $result = $conn->query($sql);
     return $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
 }
 
 // Function to add new product
-function addProduct($conn, $name, $quantity, $alert_quantity, $price) {
+function addProduct($conn, $name, $quantity, $alert_quantity, $price, $quantity_arrived) {
     try {
-        $stmt = $conn->prepare("INSERT INTO products (name, quantity, alert_quantity, price) VALUES (?, ?, ?, ?)");
+        $stmt = $conn->prepare("INSERT INTO products (name, quantity, quantity_arrived, alert_quantity, price) VALUES (?, ?, ?, ?, ?)");
         if (!$stmt) {
             throw new Exception("Prepare failed: " . $conn->error);
         }
-        $stmt->bind_param("siid", $name, $quantity, $alert_quantity, $price);
+        $stmt->bind_param("siiid", $name, $quantity, $quantity_arrived, $alert_quantity, $price);
         return $stmt->execute();
     } catch (Exception $e) {
         error_log("Add product error: " . $e->getMessage());
@@ -50,9 +61,10 @@ function deleteProduct($conn, $id) {
     }
 }
 
-// Function to update existing product
+// Function to update existing product (does not modify arrival_date or quantity_arrived)
 function updateProduct($conn, $id, $name, $quantity, $alert_quantity, $price) {
     try {
+        // Only update the fields that should be editable, preserve arrival_date and quantity_arrived
         $stmt = $conn->prepare("UPDATE products SET name = ?, quantity = ?, alert_quantity = ?, price = ? WHERE id = ?");
         if (!$stmt) {
             throw new Exception("Prepare failed: " . $conn->error);
@@ -153,7 +165,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     try {
         switch ($_POST['action']) {
             case 'add':
-                if (!addProduct($conn, $_POST['name'], $_POST['quantity'], $_POST['alert_quantity'], $_POST['price'])) {
+                $quantity_arrived = isset($_POST['quantity_arrived']) ? (int)$_POST['quantity_arrived'] : (int)$_POST['quantity'];
+                if (!addProduct($conn, $_POST['name'], $_POST['quantity'], $_POST['alert_quantity'], $_POST['price'], $quantity_arrived)) {
                     throw new Exception("Failed to add product");
                 }
                 $success = "Product added successfully";
@@ -214,17 +227,15 @@ $products = getAllProducts($conn);
 
             <?php if (isset($error)): ?>
                 <div class="alert alert-danger"><?php echo htmlspecialchars($error); ?></div>
-            <?php endif; ?>
-
-            <!-- Products Table -->
+            <?php endif; ?>            <!-- Products Table -->
             <div class="card">
                 <div class="card-body">
-                    <table class="table">
-                        <thead>
+                    <table class="table">                        <thead>
                             <tr>
                                 <th>ID</th>
                                 <th>Product Name</th>
                                 <th>Quantity</th>
+                                <th>Qty Arrived</th>
                                 <th>Alert Quantity</th>
                                 <th>Price</th>
                                 <th>Date Added</th>
@@ -233,11 +244,11 @@ $products = getAllProducts($conn);
                             </tr>
                         </thead>
                         <tbody>
-                            <?php foreach ($products as $product): ?>
-                            <tr>
+                            <?php foreach ($products as $product): ?>                            <tr>
                                 <td><?php echo htmlspecialchars($product['id']); ?></td>
                                 <td><?php echo htmlspecialchars($product['name']); ?></td>
                                 <td><?php echo htmlspecialchars($product['quantity']); ?></td>
+                                <td><?php echo htmlspecialchars($product['quantity_arrived'] ?? 0); ?></td>
                                 <td><?php echo htmlspecialchars($product['alert_quantity']); ?></td>
                                 <td>$<?php echo number_format($product['price'], 2); ?></td>
                                 <td><?php echo date('M j, Y', strtotime($product['created_at'])); ?></td>
@@ -253,12 +264,11 @@ $products = getAllProducts($conn);
                                     <button class="btn btn-sm btn-danger" onclick="deleteProduct(<?php echo $product['id']; ?>)">
                                         <i class="fas fa-trash"></i>
                                     </button>
-                                </td>
-                            </tr>
+                                </td>                            </tr>
                             <?php endforeach; ?>
-                            <?php if (empty($products)): ?>
+                              <?php if (empty($products)): ?>
                             <tr>
-                                <td colspan="8" class="text-center">No products found</td>
+                                <td colspan="9" class="text-center">No products found</td>
                             </tr>
                             <?php endif; ?>
                         </tbody>
@@ -267,7 +277,7 @@ $products = getAllProducts($conn);
             </div>
         </main>
     </div>
-
+    
     <!-- Add Product Modal -->
     <div id="addProductModal" class="modal">
         <div class="modal-content">
@@ -281,8 +291,14 @@ $products = getAllProducts($conn);
                 </div>
 
                 <div class="form-group">
-                    <label for="quantity">Quantity</label>
+                    <label for="quantity">Current Quantity</label>
                     <input type="number" id="quantity" name="quantity" required min="0" class="form-control">
+                </div>
+
+                <div class="form-group">
+                    <label for="quantity_arrived">Quantity Arrived</label>
+                    <input type="number" id="quantity_arrived" name="quantity_arrived" required min="0" class="form-control">
+                    <small class="form-text">Initial quantity when product first arrived</small>
                 </div>
 
                 <div class="form-group">
@@ -401,9 +417,8 @@ $products = getAllProducts($conn);
                     console.error('Error deleting product:', error);
                     alert('Error deleting product: ' + error.message);
                 }
-            }
-        }
-
+            }        }
+        
         // Close modals when clicking outside
         window.onclick = function(event) {
             if (event.target == document.getElementById('addProductModal')) {
@@ -413,17 +428,64 @@ $products = getAllProducts($conn);
                 closeEditProductModal();
             }
         }
-
-        // Search functionality
+          // Search functionality
         document.getElementById('searchInput').addEventListener('keyup', function() {
             const searchValue = this.value.toLowerCase();
             const tableRows = document.querySelectorAll('tbody tr');
 
             tableRows.forEach(row => {
-                const productName = row.children[1].textContent.toLowerCase();
-                row.style.display = productName.includes(searchValue) ? '' : 'none';
+                if (row.children.length > 1) { // Check if it's not the "no products found" row
+                    const productName = row.children[1].textContent.toLowerCase();
+                    const productId = row.children[0].textContent.toLowerCase();
+                    const shouldShow = productName.includes(searchValue) || productId.includes(searchValue);
+                    row.style.display = shouldShow ? '' : 'none';
+                }
             });
         });
-    </script>
+
+        // Auto-fill quantity_arrived when quantity is entered in Add Product modal
+        document.getElementById('quantity').addEventListener('input', function() {
+            const quantityArrivedField = document.getElementById('quantity_arrived');
+            if (!quantityArrivedField.value || quantityArrivedField.value == 0) {
+                quantityArrivedField.value = this.value;
+            }
+        });        // Form validation to ensure quantity_arrived is not greater than current quantity
+        document.querySelector('#addProductModal form').addEventListener('submit', function(e) {
+            const quantity = parseInt(document.getElementById('quantity').value);
+            const quantityArrived = parseInt(document.getElementById('quantity_arrived').value);
+            const price = parseFloat(document.getElementById('price').value);
+            
+            if (quantityArrived > quantity) {
+                e.preventDefault();
+                alert('Quantity arrived (' + quantityArrived + ') cannot be greater than current quantity (' + quantity + ')');
+                return false;
+            }
+            
+            if (price <= 0) {
+                e.preventDefault();
+                alert('Price must be greater than 0');
+                return false;
+            }
+        });
+    </script>    <style>
+        /* Additional styles for new columns */
+        .table th:nth-child(4), 
+        .table td:nth-child(4) {
+            background-color: #f8f9fa;
+            font-weight: 600;
+            color: #495057;
+        }
+        
+        .form-text {
+            font-size: 12px;
+            color: #6c757d;
+            margin-top: 4px;
+        }
+        
+        /* Style for quantity arrived column */
+        .table tbody tr:hover td:nth-child(4) {
+            background-color: #f0f0f0;
+        }
+    </style>
 </body>
 </html>
