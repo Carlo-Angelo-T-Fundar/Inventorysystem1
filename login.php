@@ -1,6 +1,10 @@
 <?php
 session_start();
 require_once 'config/db.php';
+require_once 'config/activity_logger.php';
+
+// Initialize activity logger
+$activityLogger = new UserActivityLogger($conn);
 
 // If user is already logged in, redirect to dashboard
 if (isset($_SESSION['user_id'])) {
@@ -11,16 +15,21 @@ if (isset($_SESSION['user_id'])) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = $_POST['username'];
     $password = $_POST['password'];
-      $stmt = $conn->prepare("SELECT id, username, password, role FROM users WHERE username = ?");
+    
+    $stmt = $conn->prepare("SELECT id, username, password, role FROM users WHERE username = ?");
     $stmt->bind_param("s", $username);
     $stmt->execute();
     $result = $stmt->get_result();
     
-    if ($user = $result->fetch_assoc()) {        
+    if ($user = $result->fetch_assoc()) {
         if (password_verify($password, $user['password'])) {
             $_SESSION['user_id'] = $user['id'];
             $_SESSION['username'] = $user['username'];
             $_SESSION['role'] = $user['role'];
+            
+            // Log the successful login
+            $activityLogger->logLogin($user['id'], $user['username'], $user['role']);
+            
             header("Location: dashboard.php");
             exit();
         } else {
@@ -64,14 +73,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </div>
                     <div class="form-group">
                         <label for="password">Password</label>
-                        <div class="input-with-icon">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <div class="input-with-icon">                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
                                 <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
                             </svg>
                             <input type="password" id="password" name="password" placeholder="Enter your password" required>
                         </div>
-                    </div>                    <button type="submit" class="login-button">Sign In</button>
+                    </div>
+                    
+                    <button type="submit" class="login-button">Sign In</button>
                 </form>
             </div>
         </div>
