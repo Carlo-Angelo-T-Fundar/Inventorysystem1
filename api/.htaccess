@@ -1,0 +1,65 @@
+# Enable URL rewriting
+RewriteEngine On
+
+# Set the base directory for the RewriteRule directives
+RewriteBase /inventorysystem/Inventorysystem1-1/api/
+
+# If the request is for a real file or directory, skip the rewriting rules
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# API versioning and routing
+# v1/auth/login -> auth.php?action=login
+RewriteRule ^v1/auth/login/?$ auth.php?action=login [QSA,L]
+RewriteRule ^v1/auth/logout/?$ auth.php?action=logout [QSA,L]
+
+# Users endpoints
+RewriteRule ^v1/users/?$ users.php?action=list [QSA,L]
+RewriteRule ^v1/users/([0-9]+)/?$ users.php?action=get&id=$1 [QSA,L]
+RewriteRule ^v1/users/create/?$ users.php?action=create [QSA,L]
+RewriteRule ^v1/users/update/?$ users.php?action=update [QSA,L]
+RewriteRule ^v1/users/delete/([0-9]+)/?$ users.php?action=delete&id=$1 [QSA,L]
+
+# Inventory endpoints
+RewriteRule ^v1/inventory/?$ inventory.php?action=list [QSA,L]
+RewriteRule ^v1/inventory/([0-9]+)/?$ inventory.php?action=get&id=$1 [QSA,L]
+RewriteRule ^v1/inventory/create/?$ inventory.php?action=create [QSA,L]
+RewriteRule ^v1/inventory/update/?$ inventory.php?action=update [QSA,L]
+RewriteRule ^v1/inventory/delete/([0-9]+)/?$ inventory.php?action=delete&id=$1 [QSA,L]
+
+# Orders endpoints
+RewriteRule ^v1/orders/?$ orders.php?action=list [QSA,L]
+RewriteRule ^v1/orders/([0-9]+)/?$ orders.php?action=get&id=$1 [QSA,L]
+RewriteRule ^v1/orders/create/?$ orders.php?action=create [QSA,L]
+RewriteRule ^v1/orders/status/?$ orders.php?action=update_status [QSA,L]
+
+# Sales endpoints
+RewriteRule ^v1/sales/summary/?$ sales.php?action=summary [QSA,L]
+RewriteRule ^v1/sales/top-products/?$ sales.php?action=top_products [QSA,L]
+RewriteRule ^v1/sales/add/?$ sales.php?action=add [QSA,L]
+RewriteRule ^v1/sales/by-date/?$ sales.php?action=by_date [QSA,L]
+
+# Handle API root
+RewriteRule ^v1/?$ index.php [QSA,L]
+RewriteRule ^/?$ index.php [QSA,L]
+
+# Set HTTP headers for API responses
+<IfModule mod_headers.c>
+    Header always set Access-Control-Allow-Origin "*"
+    Header always set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+    Header always set Access-Control-Allow-Headers "Content-Type, Authorization"
+    
+    # Handle OPTIONS method for CORS preflight
+    RewriteCond %{REQUEST_METHOD} OPTIONS
+    RewriteRule ^(.*)$ $1 [R=200,L]
+</IfModule>
+
+# Force JSON content type for API responses
+<FilesMatch "\.(php)$">
+    ForceType application/json
+</FilesMatch>
+
+# PHP error handling
+php_flag display_errors Off
+php_value error_reporting E_ALL
