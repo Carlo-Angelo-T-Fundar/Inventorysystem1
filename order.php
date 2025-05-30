@@ -2,20 +2,18 @@
 require_once 'config/db.php';
 require_once 'config/auth.php';
 
-// Check if user is logged in
-if (!isset($_SESSION['user_id'])) {
-    header("Location: login.php");
-    exit();
-}
-
 // Check if user has access to supplier orders
-// Most users should have access to view supplier orders for inventory management
+// Only admins and store clerks can access orders
+requireRole(['admin', 'store_clerk'], $conn);
+
+$current_user_role = getCurrentUserRole($conn);
 
 // Function to get all supplier orders
 function getAllSupplierOrders($conn) {
-    $sql = "SELECT so.*, p.quantity as current_stock 
+    $sql = "SELECT so.*, p.quantity as current_stock, u.username as approved_by_name
             FROM supplier_orders so
             LEFT JOIN products p ON so.product_id = p.id
+            LEFT JOIN users u ON so.approved_by = u.id
             ORDER BY so.order_date DESC";
     $result = $conn->query($sql);
     return $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
@@ -112,10 +110,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 if (!$supplier || !$product) {
                     throw new Exception("Invalid supplier or product selected");
                 }
+                  $total_amount = $quantity_ordered * $unit_price;
                 
-                $total_amount = $quantity_ordered * $unit_price;
-                
-                $stmt = $conn->prepare("INSERT INTO supplier_orders (supplier_name, supplier_email, supplier_phone, product_id, product_name, quantity_ordered, unit_price, total_amount, expected_delivery_date, notes, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ordered')");
+                $stmt = $conn->prepare("INSERT INTO supplier_orders (supplier_name, supplier_email, supplier_phone, product_id, product_name, quantity_ordered, unit_price, total_amount, expected_delivery_date, notes, status, approval_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'pending_approval')");
                 $stmt->bind_param("sssissddss", 
                     $supplier['name'], 
                     $supplier['email'], 
@@ -130,9 +127,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 );
                 
                 if ($stmt->execute()) {
-                    $success = "Supplier order created successfully";
+                    $success = "Supplier order created successfully and pending approval";
                 } else {
-                    throw new Exception("Failed to create order");
+                    throw new Exception("Failed to create order");                }
+                break;            case 'approve_order':
+                // Only admins can approve or reject orders
+                if ($current_user_role !== 'admin') {
+                    throw new Exception("Only administrators can approve or reject orders");
+                }
+                
+                $order_id = $_POST['order_id'];
+                $approval_action = $_POST['approval_action']; // 'approve' or 'reject'
+                $current_user_id = $_SESSION['user_id'];
+                
+                if ($approval_action === 'approve') {
+                    $stmt = $conn->prepare("UPDATE supplier_orders SET approval_status = 'approved', approved_by = ?, approved_at = NOW(), status = 'ordered' WHERE id = ? AND approval_status = 'pending_approval'");
+                    $stmt->bind_param("ii", $current_user_id, $order_id);
+                    $success_message = "Order approved successfully";
+                } else if ($approval_action === 'reject') {
+                    $stmt = $conn->prepare("UPDATE supplier_orders SET approval_status = 'rejected', approved_by = ?, approved_at = NOW(), status = 'cancelled' WHERE id = ? AND approval_status = 'pending_approval'");
+                    $stmt->bind_param("ii", $current_user_id, $order_id);
+                    $success_message = "Order rejected successfully";
+                } else {
+                    throw new Exception("Invalid approval action");
+                }
+                
+                if ($stmt->execute()) {
+                    if ($stmt->affected_rows > 0) {
+                        $success = $success_message;
+                    } else {
+                        throw new Exception("Order not found or already processed");
+                    }
+                } else {
+                    throw new Exception("Failed to process approval");
                 }
                 break;
 
@@ -140,7 +167,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $order_id = $_POST['order_id'];
                 $status = $_POST['status'];
                 $quantity_received = isset($_POST['quantity_received']) ? (int)$_POST['quantity_received'] : 0;
-                  $stmt = $conn->prepare("UPDATE supplier_orders SET status = ?, quantity_received = ?, actual_delivery_date = CASE WHEN ? = 'delivered' THEN CURDATE() ELSE actual_delivery_date END WHERE id = ?");
+                
+                // Check if order is approved before allowing status updates (except cancellation)
+                $check_approval = $conn->query("SELECT approval_status FROM supplier_orders WHERE id = $order_id");
+                $approval_row = $check_approval->fetch_assoc();
+                
+                if ($approval_row['approval_status'] !== 'approved' && $status !== 'cancelled') {
+                    throw new Exception("Order must be approved before updating status to " . $status);
+                }
+                  
+                $stmt = $conn->prepare("UPDATE supplier_orders SET status = ?, quantity_received = ?, actual_delivery_date = CASE WHEN ? = 'delivered' THEN CURDATE() ELSE actual_delivery_date END WHERE id = ?");
                 $stmt->bind_param("sisi", $status, $quantity_received, $status, $order_id);
                   if ($stmt->execute()) {
                     // If order is delivered, create new inventory transaction record
@@ -270,13 +306,20 @@ $suppliers = getSuppliers($conn);?>
                 <div class="search-box">
                     <i class="fas fa-search"></i>
                     <input type="text" id="searchOrder" placeholder="Search by supplier or product...">
-                </div>
-                  <div class="filter-group">
+                </div>                <div class="filter-group">
                     <select id="statusFilter" onchange="filterOrders()">
                         <option value="">All Status</option>
                         <option value="ordered">Ordered</option>
                         <option value="delivered">Delivered</option>
                         <option value="cancelled">Cancelled</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <select id="approvalFilter" onchange="filterOrders()">
+                        <option value="">All Approvals</option>
+                        <option value="pending approval">Pending Approval</option>
+                        <option value="approved">Approved</option>
+                        <option value="rejected">Rejected</option>
                     </select>
                 </div>
             </div>
@@ -292,8 +335,7 @@ $suppliers = getSuppliers($conn);?>
             <!-- Supplier Orders Table -->
             <div class="card">
                 <div class="card-body">
-                    <table class="table">
-                        <thead>
+                    <table class="table">                        <thead>
                             <tr>
                                 <th>Order ID</th>
                                 <th>Supplier Info</th>
@@ -304,6 +346,7 @@ $suppliers = getSuppliers($conn);?>
                                 <th>Total Amount</th>
                                 <th>Order Date</th>
                                 <th>Expected Date</th>
+                                <th>Approval Status</th>
                                 <th>Status</th>
                                 <th>Actions</th>
                             </tr>
@@ -325,29 +368,49 @@ $suppliers = getSuppliers($conn);?>
                                 </td>
                                 <td><?php echo htmlspecialchars($order['quantity_ordered']); ?></td>
                                 <td><?php echo htmlspecialchars($order['quantity_received']); ?></td>
-                                <td>$<?php echo number_format($order['unit_price'], 2); ?></td>
-                                <td>$<?php echo number_format($order['total_amount'], 2); ?></td>
+                                <td>$<?php echo number_format($order['unit_price'], 2); ?></td>                                <td>$<?php echo number_format($order['total_amount'], 2); ?></td>
                                 <td><?php echo date('M j, Y', strtotime($order['order_date'])); ?></td>
                                 <td><?php echo $order['expected_delivery_date'] ? date('M j, Y', strtotime($order['expected_delivery_date'])) : 'N/A'; ?></td>
+                                <td>
+                                    <span class="approval-badge <?php echo strtolower(str_replace('_', '-', $order['approval_status'])); ?>">
+                                        <?php echo ucfirst(str_replace('_', ' ', $order['approval_status'])); ?>
+                                    </span>
+                                    <?php if ($order['approved_by_name']): ?>
+                                        <br><small>by <?php echo htmlspecialchars($order['approved_by_name']); ?></small>
+                                    <?php endif; ?>
+                                </td>
                                 <td>
                                     <span class="status-badge <?php echo strtolower($order['status']); ?>">
                                         <?php echo ucfirst($order['status']); ?>
                                     </span>
-                                </td>
-                                <td>
-                                    <button class="btn btn-sm btn-primary" onclick="updateOrderStatus(<?php echo $order['id']; ?>)">
-                                        <i class="fas fa-edit"></i>
-                                    </button>
-                                    <button class="btn btn-sm btn-danger" onclick="deleteOrder(<?php echo $order['id']; ?>)">
-                                        <i class="fas fa-trash"></i>
-                                    </button>
+                                </td>                                <td>
+                                    <?php if ($order['approval_status'] === 'pending_approval'): ?>
+                                        <?php if ($current_user_role === 'admin'): ?>
+                                            <button class="btn btn-sm btn-success" onclick="approveOrder(<?php echo $order['id']; ?>, 'approve')" title="Approve Order">
+                                                <i class="fas fa-check"></i>
+                                            </button>
+                                            <button class="btn btn-sm btn-danger" onclick="approveOrder(<?php echo $order['id']; ?>, 'reject')" title="Reject Order">
+                                                <i class="fas fa-times"></i>
+                                            </button>
+                                        <?php else: ?>
+                                            <span class="badge badge-warning">Awaiting Admin Approval</span>
+                                        <?php endif; ?>
+                                    <?php else: ?>
+                                        <?php if ($order['approval_status'] === 'approved'): ?>
+                                            <button class="btn btn-sm btn-primary" onclick="updateOrderStatus(<?php echo $order['id']; ?>)" title="Update Status">
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                        <?php endif; ?>
+                                        <button class="btn btn-sm btn-secondary" onclick="deleteOrder(<?php echo $order['id']; ?>)" title="Delete Order">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    <?php endif; ?>
                                 </td>
                             </tr>
                             <?php endforeach; ?>
-                            
-                            <?php if (empty($supplier_orders)): ?>
+                              <?php if (empty($supplier_orders)): ?>
                             <tr>
-                                <td colspan="11" class="text-center">No supplier orders found</td>
+                                <td colspan="12" class="text-center">No supplier orders found</td>
                             </tr>
                             <?php endif; ?>
                         </tbody>
@@ -544,9 +607,7 @@ $suppliers = getSuppliers($conn);?>
 
         function closeUpdateStatusModal() {
             document.getElementById('updateStatusModal').style.display = 'none';
-        }
-
-        function updateOrderStatus(orderId) {
+        }        function updateOrderStatus(orderId) {
             document.getElementById('update_order_id').value = orderId;
             
             // Find the current status of the order
@@ -560,6 +621,21 @@ $suppliers = getSuppliers($conn);?>
             toggleQuantityReceivedField();
             
             openUpdateStatusModal();
+        }
+
+        function approveOrder(orderId, action) {
+            const actionText = action === 'approve' ? 'approve' : 'reject';
+            if (confirm(`Are you sure you want to ${actionText} this supplier order?`)) {
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.innerHTML = `
+                    <input type="hidden" name="action" value="approve_order">
+                    <input type="hidden" name="order_id" value="${orderId}">
+                    <input type="hidden" name="approval_action" value="${action}">
+                `;
+                document.body.appendChild(form);
+                form.submit();
+            }
         }
 
         function deleteOrder(orderId) {
@@ -590,9 +666,7 @@ $suppliers = getSuppliers($conn);?>
         }
 
         // Add event listener for status change
-        document.getElementById('status').addEventListener('change', toggleQuantityReceivedField);
-
-        // Search functionality
+        document.getElementById('status').addEventListener('change', toggleQuantityReceivedField);        // Search functionality
         document.getElementById('searchOrder').addEventListener('keyup', function() {
             const searchValue = this.value.toLowerCase();
             const rows = document.querySelectorAll('tbody tr');
@@ -602,28 +676,36 @@ $suppliers = getSuppliers($conn);?>
                     const supplierName = row.children[1].textContent.toLowerCase();
                     const productName = row.children[2].textContent.toLowerCase();
                     const orderId = row.children[0].textContent.toLowerCase();
+                    const approvalStatus = row.children[9].textContent.toLowerCase();
+                    const status = row.children[10].textContent.toLowerCase();
                     
                     const shouldShow = supplierName.includes(searchValue) || 
                                      productName.includes(searchValue) || 
-                                     orderId.includes(searchValue);
+                                     orderId.includes(searchValue) ||
+                                     approvalStatus.includes(searchValue) ||
+                                     status.includes(searchValue);
                     row.style.display = shouldShow ? '' : 'none';
                 }
             });
-        });
-
-        // Filter by status
+        });        // Filter by status (includes both approval status and order status)
         function filterOrders() {
             const statusFilter = document.getElementById('statusFilter').value.toLowerCase();
+            const approvalFilter = document.getElementById('approvalFilter').value.toLowerCase();
             const rows = document.querySelectorAll('tbody tr');
 
             rows.forEach(row => {
                 if (row.children.length > 1) {
-                    const status = row.children[9].textContent.toLowerCase();
-                    const shouldShow = !statusFilter || status.includes(statusFilter);
+                    const approvalStatus = row.children[9].textContent.toLowerCase();
+                    const orderStatus = row.children[10].textContent.toLowerCase();
+                    
+                    const statusMatch = !statusFilter || orderStatus.includes(statusFilter);
+                    const approvalMatch = !approvalFilter || approvalStatus.includes(approvalFilter);
+                    
+                    const shouldShow = statusMatch && approvalMatch;
                     row.style.display = shouldShow ? '' : 'none';
                 }
             });
-        }        // Close modals when clicking outside
+        }// Close modals when clicking outside
         window.onclick = function(event) {
             if (event.target == document.getElementById('createOrderModal')) {
                 closeCreateOrderModal();
@@ -714,11 +796,47 @@ $suppliers = getSuppliers($conn);?>
         .status-badge.delivered {
             background-color: #d1fae5;
             color: #065f46;
-        }
-
-        .status-badge.cancelled {
+        }        .status-badge.cancelled {
             background-color: #fee2e2;
             color: #991b1b;
+        }
+
+        /* Approval Badge Styles */
+        .approval-badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            text-transform: uppercase;
+        }
+
+        .approval-badge.pending-approval {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+
+        .approval-badge.approved {
+            background-color: #d1fae5;
+            color: #065f46;
+            border: 1px solid #6ee7b7;
+        }        .approval-badge.rejected {
+            background-color: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #fca5a5;
+        }
+
+        /* Warning Badge for Non-Admin Users */
+        .badge-warning {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
         }
 
         .card {
@@ -921,5 +1039,13 @@ $suppliers = getSuppliers($conn);?>
             white-space: nowrap;
             margin-bottom: 0;
         }</style>
+
+    <!-- Auto-logout system -->
+    <script src="css/auto-logout.js"></script>
+    <script>
+        // Mark body as logged in for auto-logout detection
+        document.body.classList.add('logged-in');
+        document.body.setAttribute('data-user-id', '<?php echo $_SESSION['user_id']; ?>');
+    </script>
 </body>
 </html>
