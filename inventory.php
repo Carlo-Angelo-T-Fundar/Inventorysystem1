@@ -3,10 +3,11 @@ require_once 'config/db.php';
 require_once 'config/auth.php';
 
 // Check if user has access to inventory management
-// Admins, store clerks, and suppliers can access inventory
-requireRole(['admin', 'store_clerk', 'supplier'], $conn);
+// Admins, store clerks, suppliers can edit inventory; cashiers can only view
+requireRole(['admin', 'store_clerk', 'supplier', 'cashier'], $conn);
 
 $current_user_role = getCurrentUserRole($conn);
+$is_read_only = ($current_user_role === 'cashier');
 
 // Function to get all products
 function getAllProducts($conn) {
@@ -136,10 +137,14 @@ if (isset($_GET['action'])) {
                 } else {
                     http_response_code(404);
                     echo json_encode(['error' => 'Product not found']);
-                }
-                break;
+                }                break;
                 
             case 'delete':
+                // Check if user has edit permissions
+                if ($is_read_only) {
+                    throw new Exception('You don\'t have permission to delete products.');
+                }
+                
                 if (!isset($_GET['id']) || !is_numeric($_GET['id'])) {
                     throw new Exception('Invalid product ID');
                 }
@@ -162,6 +167,13 @@ if (isset($_GET['action'])) {
 
 // Handle POST requests
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    // Check if user has edit permissions
+    if ($is_read_only) {
+        $_SESSION['error'] = "You don't have permission to edit inventory.";
+        header("Location: inventory.php");
+        exit();
+    }
+    
     try {
         switch ($_POST['action']) {
             case 'add':
@@ -210,14 +222,15 @@ $products = getAllProducts($conn);
         <main class="main-content">
             <header class="dashboard-header">
                 <h1>Inventory Management</h1>
-                <div class="header-actions">
-                    <div class="search-bar">
+                <div class="header-actions">                    <div class="search-bar">
                         <input type="text" id="searchInput" placeholder="Search products..." class="search-input">
                         <button type="button" class="search-btn"><i class="fas fa-search"></i></button>
                     </div>
+                    <?php if (!$is_read_only): ?>
                     <button class="btn btn-primary" onclick="openAddProductModal()">
                         <i class="fas fa-plus"></i> Add New Product
                     </button>
+                    <?php endif; ?>
                 </div>
             </header>
 
@@ -255,15 +268,18 @@ $products = getAllProducts($conn);
                                 <td>
                                     <span class="status-badge <?php echo $product['quantity'] <= $product['alert_quantity'] ? 'low-stock' : 'in-stock'; ?>">
                                         <?php echo $product['quantity'] <= $product['alert_quantity'] ? 'Low Stock' : 'In Stock'; ?>
-                                    </span>
-                                </td>
+                                    </span>                                </td>
                                 <td>
+                                    <?php if (!$is_read_only): ?>
                                     <button class="btn btn-sm btn-primary" onclick="editProduct(<?php echo $product['id']; ?>)">
                                         <i class="fas fa-edit"></i>
                                     </button>
                                     <button class="btn btn-sm btn-danger" onclick="deleteProduct(<?php echo $product['id']; ?>)">
                                         <i class="fas fa-trash"></i>
                                     </button>
+                                    <?php else: ?>
+                                    <span class="text-muted">View Only</span>
+                                    <?php endif; ?>
                                 </td>                            </tr>
                             <?php endforeach; ?>
                               <?php if (empty($products)): ?>
@@ -485,7 +501,14 @@ $products = getAllProducts($conn);
         /* Style for quantity arrived column */
         .table tbody tr:hover td:nth-child(4) {
             background-color: #f0f0f0;
-        }
-    </style>
+        }    </style>
+    
+    <!-- Auto-logout system -->
+    <script src="css/auto-logout.js"></script>
+    <script>
+        // Mark body as logged in for auto-logout detection
+        document.body.classList.add('logged-in');
+        document.body.setAttribute('data-user-id', '<?php echo $_SESSION['user_id']; ?>');
+    </script>
 </body>
 </html>
