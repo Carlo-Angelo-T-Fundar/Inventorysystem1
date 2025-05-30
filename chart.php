@@ -505,5 +505,13 @@ $current_page = 'chart';
             });
         });
     </script>
+
+    <!-- Auto-logout system -->
+    <script src="css/auto-logout.js"></script>
+    <script>
+        // Mark body as logged in for auto-logout detection
+        document.body.classList.add('logged-in');
+        document.body.setAttribute('data-user-id', '<?php echo $_SESSION['user_id']; ?>');
+    </script>
 </body>
 </html>
