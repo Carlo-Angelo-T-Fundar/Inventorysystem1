@@ -114,9 +114,57 @@ if ($result->num_rows == 0) {
     $stmt->execute();
 } else {
     // Update existing admin user to have admin role
-    $update_admin = $conn->prepare("UPDATE users SET role = ? WHERE username = ?");
-    $update_admin->bind_param("ss", $default_role, $default_username);
+    $update_admin = $conn->prepare("UPDATE users SET role = ? WHERE username = ?");    $update_admin->bind_param("ss", $default_role, $default_username);
     $update_admin->execute();
+}
+
+// Create supplier_orders table if not exists
+$sql = "CREATE TABLE IF NOT EXISTS supplier_orders (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    supplier_name VARCHAR(255) NOT NULL,
+    supplier_email VARCHAR(255) NOT NULL,
+    supplier_phone VARCHAR(50) NOT NULL,
+    product_id INT NOT NULL,
+    product_name VARCHAR(255) NOT NULL,
+    quantity_ordered INT NOT NULL DEFAULT 0,
+    quantity_received INT NOT NULL DEFAULT 0,
+    unit_price DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    total_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expected_delivery_date DATE NULL,
+    actual_delivery_date DATE NULL,
+    status ENUM('pending','ordered','shipped','delivered','cancelled') NOT NULL DEFAULT 'pending',
+    approval_status ENUM('pending_approval','approved','rejected') NOT NULL DEFAULT 'pending_approval',
+    approved_by INT NULL,
+    approved_at TIMESTAMP NULL,
+    notes TEXT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    
+    INDEX idx_supplier_name (supplier_name),
+    INDEX idx_product_id (product_id),
+    INDEX idx_order_date (order_date),
+    INDEX idx_status (status),
+    INDEX idx_approval_status (approval_status),
+    FOREIGN KEY (approved_by) REFERENCES users(id) ON DELETE SET NULL
+)";
+
+if ($conn->query($sql) === FALSE) {
+    die("Error creating supplier_orders table: " . $conn->error);
+}
+
+// Add approval_status column to existing supplier_orders table if it doesn't exist
+$check_approval_column = $conn->query("SHOW COLUMNS FROM supplier_orders LIKE 'approval_status'");
+if ($check_approval_column->num_rows == 0) {
+    $alter_sql = "ALTER TABLE supplier_orders 
+                  ADD COLUMN approval_status ENUM('pending_approval','approved','rejected') NOT NULL DEFAULT 'pending_approval' AFTER status,
+                  ADD COLUMN approved_by INT NULL AFTER approval_status,
+                  ADD COLUMN approved_at TIMESTAMP NULL AFTER approved_by,
+                  ADD INDEX idx_approval_status (approval_status),
+                  ADD FOREIGN KEY (approved_by) REFERENCES users(id) ON DELETE SET NULL";
+    if ($conn->query($alter_sql) === FALSE) {
+        die("Error adding approval columns: " . $conn->error);
+    }
 }
 
 ?>
