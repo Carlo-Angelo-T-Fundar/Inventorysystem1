@@ -21,7 +21,7 @@ class UserActivityLogger {
             user_id INT NOT NULL,
             username VARCHAR(50) NOT NULL,
             user_role VARCHAR(20) NOT NULL,
-            activity_type ENUM('login', 'logout', 'session_timeout') NOT NULL,
+            activity_type ENUM('login', 'logout', 'session_timeout', 'browser_close') NOT NULL,
             login_time TIMESTAMP NULL,
             logout_time TIMESTAMP NULL,
             session_duration INT NULL COMMENT 'Duration in seconds',
@@ -64,20 +64,35 @@ class UserActivityLogger {
         
         return $result;
     }
-    
-    /**
+      /**
      * Log user logout activity
      */
-    public function logLogout($user_id = null, $username = null, $user_role = null, $activity_type = 'logout') {
+    public function logLogout($user_id = null, $username = null, $user_role = null, $ip_address = null, $user_agent = null, $reason = 'logout') {
         // Get user info from session if not provided
         if (!$user_id && isset($_SESSION['user_id'])) {
             $user_id = $_SESSION['user_id'];
         }
         if (!$username && isset($_SESSION['username'])) {
             $username = $_SESSION['username'];
+        }        if (!$user_role && isset($_SESSION['role'])) {
+            $user_role = $_SESSION['role'];
         }
-        if (!$user_role && isset($_SESSION['user_role'])) {
-            $user_role = $_SESSION['user_role'];
+        if (!$ip_address) {
+            $ip_address = $this->getClientIP();
+        }
+        if (!$user_agent) {
+            $user_agent = $_SERVER['HTTP_USER_AGENT'] ?? '';
+        }
+        // Debug logging
+        error_log("LOGOUT DEBUG: user_id=$user_id, username=$username, user_role=$user_role, reason=$reason");
+        error_log("LOGOUT DEBUG: Session login_log_id=" . ($_SESSION['login_log_id'] ?? 'not set'));
+        
+        // Map reason to activity type
+        $activity_type = 'logout';
+        if ($reason === 'session_timeout') {
+            $activity_type = 'session_timeout';
+        } elseif ($reason === 'browser_close') {
+            $activity_type = 'browser_close';
         }
         
         $logout_time = date('Y-m-d H:i:s');
@@ -87,31 +102,46 @@ class UserActivityLogger {
         if (isset($_SESSION['login_time'])) {
             $session_duration = time() - $_SESSION['login_time'];
         }
-        
-        // Update the existing login record if available
-        if (isset($_SESSION['login_log_id'])) {
+          // Try to update the existing login record first
+        $updated = false;
+        if (isset($_SESSION['login_log_id']) && $_SESSION['login_log_id']) {
             $stmt = $this->conn->prepare("
                 UPDATE user_activity_logs 
-                SET logout_time = ?, session_duration = ?, activity_type = ?
-                WHERE id = ?
-            ");
-            $stmt->bind_param("sisi", $logout_time, $session_duration, $activity_type, $_SESSION['login_log_id']);
+                SET logout_time = ?, session_duration = ?
+                WHERE id = ? AND user_id = ? AND logout_time IS NULL
+            ");            $stmt->bind_param("siii", $logout_time, $session_duration, $_SESSION['login_log_id'], $user_id);
             $result = $stmt->execute();
-        } else {
-            // Create new logout record if login record not found
-            $ip_address = $this->getClientIP();
-            $user_agent = $_SERVER['HTTP_USER_AGENT'] ?? '';
-            
+            $updated = ($stmt->affected_rows > 0);
+            error_log("LOGOUT DEBUG: Updated existing record (login_log_id=" . $_SESSION['login_log_id'] . "): " . ($updated ? 'SUCCESS' : 'FAILED') . ", affected_rows=" . $stmt->affected_rows);
+        }
+        
+        // If we couldn't update an existing record, try to find the most recent login without logout
+        if (!$updated && $user_id) {
+            $stmt = $this->conn->prepare("
+                UPDATE user_activity_logs 
+                SET logout_time = ?, session_duration = ?
+                WHERE user_id = ? AND logout_time IS NULL AND activity_type = 'login'
+                ORDER BY login_time DESC LIMIT 1
+            ");            $stmt->bind_param("sii", $logout_time, $session_duration, $user_id);
+            $result = $stmt->execute();
+            $updated = ($stmt->affected_rows > 0);
+            error_log("LOGOUT DEBUG: Updated most recent login: " . ($updated ? 'SUCCESS' : 'FAILED') . ", affected_rows=" . $stmt->affected_rows);
+        }
+        
+        // If still no update and this is a special logout type, create a new record
+        if (!$updated && in_array($activity_type, ['session_timeout', 'browser_close'])) {
             $stmt = $this->conn->prepare("
                 INSERT INTO user_activity_logs 
                 (user_id, username, user_role, activity_type, logout_time, session_duration, ip_address, user_agent) 
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ");
-            $stmt->bind_param("isssisss", $user_id, $username, $user_role, $activity_type, $logout_time, $session_duration, $ip_address, $user_agent);
+            ");            $stmt->bind_param("isssisss", $user_id, $username, $user_role, $activity_type, $logout_time, $session_duration, $ip_address, $user_agent);
             $result = $stmt->execute();
+            $updated = $result;
+            error_log("LOGOUT DEBUG: Created new logout record: " . ($updated ? 'SUCCESS' : 'FAILED'));
         }
         
-        return $result;
+        error_log("LOGOUT DEBUG: Final result: " . ($updated ? 'SUCCESS' : 'FAILED'));
+        return $updated;
     }
     
     /**
@@ -230,16 +260,18 @@ class UserActivityLogger {
         
         return $_SERVER['REMOTE_ADDR'] ?? 'unknown';
     }
-    
-    /**
+      /**
      * Format session duration for display
      */
     public static function formatDuration($seconds) {
         if (!$seconds) return 'N/A';
         
-        $hours = floor($seconds / 3600);
-        $minutes = floor(($seconds % 3600) / 60);
-        $secs = $seconds % 60;
+        // Convert to numeric and then to integer to avoid float-to-int conversion warnings
+        $seconds = (int) round((float) $seconds);
+        
+        $hours = intval($seconds / 3600);
+        $minutes = intval(($seconds % 3600) / 60);
+        $secs = intval($seconds % 60);
         
         if ($hours > 0) {
             return sprintf('%02d:%02d:%02d', $hours, $minutes, $secs);

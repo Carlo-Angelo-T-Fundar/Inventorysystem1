@@ -5,6 +5,9 @@ if (!isset($_SESSION['user_id'])) {
     exit();
 }
 
+// Update last activity timestamp
+$_SESSION['last_activity'] = time();
+
 // Authentication helper functions
 
 function getCurrentUserRole($conn) {
@@ -33,10 +36,29 @@ function requireRole($requiredRoles, $conn) {
     if (is_string($requiredRoles)) {
         $requiredRoles = [$requiredRoles];
     }
-    
-    if (!in_array($userRole, $requiredRoles)) {
+      if (!in_array($userRole, $requiredRoles)) {
         header('Location: dashboard.php?error=access_denied');
         exit();
     }
+}
+
+/**
+ * Include auto-logout JavaScript for authenticated pages
+ */
+function includeAutoLogout() {
+    $userId = $_SESSION['user_id'] ?? 0;
+    echo "
+    <!-- Auto-logout system -->
+    <script>
+        // Set user data for auto-logout
+        if (!document.body.classList.contains('logged-in')) {
+            document.body.classList.add('logged-in');
+        }
+        if (!document.body.hasAttribute('data-user-id')) {
+            document.body.setAttribute('data-user-id', '{$userId}');
+        }
+    </script>
+    <script src='css/auto-logout.js'></script>
+    ";
 }
 ?>
