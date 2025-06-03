@@ -1,27 +1,31 @@
 <?php
+// User management page - CRUD operations
+// This file handles creating, reading, updating and deleting users
 
 require_once 'config/db.php';
 require_once 'config/auth.php';
 
-// Check if user is admin
+// Only admins can access this page
 requireRole(['admin'], $conn, 'index.php');
 
 $error = '';
 $success = '';
-$action = $_GET['action'] ?? 'list';
+$action = $_GET['action'] ?? 'list'; // default to showing list
 $user_id = $_GET['id'] ?? null;
 
-// Handle form submissions
+// Process form submissions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'];
     
     if ($action === 'create') {
+        // Get form data
         $username = trim($_POST['username']);
         $password = $_POST['password'];
         $email = trim($_POST['email']);
         $role = $_POST['role'];
         $full_name = trim($_POST['full_name']);
-          // Validation
+        
+        // Basic validation - learned this in web dev class
         if (empty($username) || empty($password) || empty($email) || empty($role) || empty($full_name)) {
             $error = "All fields are required";
         } elseif (strlen($password) < 6) {
@@ -31,36 +35,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif (!in_array($role, ['admin', 'store_clerk', 'cashier'])) {
             $error = "Invalid role selected";
         } else {
-            // Check if username already exists
+            // Check if username exists already
             $stmt = $conn->prepare("SELECT id FROM users WHERE username = ?");
             $stmt->bind_param("s", $username);
             $stmt->execute();
             if ($stmt->get_result()->num_rows > 0) {
                 $error = "Username already exists";
             } else {
-                // Check if email already exists
+                // Check if email exists already  
                 $stmt = $conn->prepare("SELECT id FROM users WHERE email = ?");
                 $stmt->bind_param("s", $email);
                 $stmt->execute();
                 if ($stmt->get_result()->num_rows > 0) {
                     $error = "Email already registered";
                 } else {
-                    // Create new user
+                    // Hash the password for security
                     $hashed_password = password_hash($password, PASSWORD_DEFAULT);
                     
-                    // Check if full_name column exists
+                    // Check if we need to add full_name column (might not exist yet)
                     $check_column = $conn->query("SHOW COLUMNS FROM users LIKE 'full_name'");
                     if ($check_column->num_rows == 0) {
                         $alter_sql = "ALTER TABLE users ADD COLUMN full_name VARCHAR(100) AFTER email";
                         $conn->query($alter_sql);
                     }
                     
+                    // Insert new user
                     $stmt = $conn->prepare("INSERT INTO users (username, password, email, full_name, role) VALUES (?, ?, ?, ?, ?)");
                     $stmt->bind_param("sssss", $username, $hashed_password, $email, $full_name, $role);
                     
                     if ($stmt->execute()) {
                         $success = "User created successfully!";
-                        $action = 'list'; // Redirect to list view
+                        $action = 'list'; // go back to list
                     } else {
                         $error = "Error creating user: " . $conn->error;
                     }
@@ -68,13 +73,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     } elseif ($action === 'update') {
+        // Update existing user
         $user_id = $_POST['user_id'];
         $username = trim($_POST['username']);
         $email = trim($_POST['email']);
         $role = $_POST['role'];
         $full_name = trim($_POST['full_name']);
         $password = $_POST['password'];
-          // Validation
+        
+        // Validate inputs
         if (empty($username) || empty($email) || empty($role) || empty($full_name)) {
             $error = "All fields except password are required";
         } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
@@ -82,21 +89,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif (!in_array($role, ['admin', 'store_clerk', 'cashier'])) {
             $error = "Invalid role selected";
         } else {
-            // Check if username already exists for other users
+            // Check username conflict with other users
             $stmt = $conn->prepare("SELECT id FROM users WHERE username = ? AND id != ?");
             $stmt->bind_param("si", $username, $user_id);
             $stmt->execute();
             if ($stmt->get_result()->num_rows > 0) {
                 $error = "Username already exists";
             } else {
-                // Check if email already exists for other users
+                // Check email conflict with other users
                 $stmt = $conn->prepare("SELECT id FROM users WHERE email = ? AND id != ?");
                 $stmt->bind_param("si", $email, $user_id);
                 $stmt->execute();
                 if ($stmt->get_result()->num_rows > 0) {
                     $error = "Email already registered";
-                } else {
-                    // Update user
+                } else {                    // Update the user
                     if (!empty($password)) {
                         // Update with new password
                         $hashed_password = password_hash($password, PASSWORD_DEFAULT);
@@ -110,7 +116,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     
                     if ($stmt->execute()) {
                         $success = "User updated successfully!";
-                        $action = 'list'; // Redirect to list view
+                        $action = 'list'; // go back to list
                     } else {
                         $error = "Error updating user: " . $conn->error;
                     }
@@ -118,9 +124,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     } elseif ($action === 'delete') {
+        // Delete user
         $user_id = $_POST['user_id'];
         
-        // Prevent deleting the main admin user
+        // Don't let them delete the main admin - that would be bad!
         $stmt = $conn->prepare("SELECT username FROM users WHERE id = ?");
         $stmt->bind_param("i", $user_id);
         $stmt->execute();
@@ -139,11 +146,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = "Error deleting user: " . $conn->error;
             }
         }
-        $action = 'list'; // Redirect to list view
+        $action = 'list'; // back to list
     }
 }
 
-// Get user data for edit form
+// Get user for editing
 if ($action === 'edit' && $user_id) {
     $stmt = $conn->prepare("SELECT * FROM users WHERE id = ?");
     $stmt->bind_param("i", $user_id);
@@ -156,7 +163,7 @@ if ($action === 'edit' && $user_id) {
     }
 }
 
-// Get list of all users for display
+// Get all users for the list
 if ($action === 'list') {
     $result = $conn->query("SELECT id, username, email, full_name, role, created_at FROM users ORDER BY id ASC");
 }
@@ -168,78 +175,212 @@ $current_page = 'users_crud';
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo $page_title; ?> - Inventory Management System</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">    <link rel="stylesheet" href="css/style.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">    <title><?php echo $page_title; ?> - Inventory System</title>
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+    <!-- our css files -->
+    <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/dashboard.css">
     <link rel="stylesheet" href="css/sidebar.css">
     <style>
-        .user-management-container {
-            padding: 2rem;
-            max-width: 1400px;
-            margin: 0 auto;
+        /* Ensure sidebar styles take priority */
+        .sidebar {
+            width: 250px !important;
+            min-height: 100vh !important;
+            background: #f8f9fa !important;
+            color: #333 !important;
+            padding: 15px !important;
+            display: flex !important;
+            flex-direction: column !important;
+            position: fixed !important;
+            left: 0 !important;
+            top: 0 !important;
+            border-right: 1px solid #ddd !important;
         }
 
-        .content-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 2rem;
-            padding-bottom: 1rem;
-            border-bottom: 2px solid #e5e7eb;
+        .sidebar .admin-header {
+            margin-bottom: 20px !important;
+            padding: 15px !important;
+            border-bottom: 1px solid #ddd !important;
         }
 
-        .content-header h1 {
-            color: #1f2937;
-            font-size: 1.875rem;
-            font-weight: 600;
-            margin: 0;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
+        .sidebar .profile-section {
+            display: flex !important;
+            align-items: center !important;
+            gap: 10px !important;
         }
 
-        .header-actions {
-            display: flex;
-            gap: 1rem;
+        .sidebar .admin-avatar {
+            width: 40px !important;
+            height: 40px !important;
+            background-color: #e9ecef !important;
+            border-radius: 50% !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            border: 1px solid #ccc !important;
+            font-size: 20px !important;
         }
 
+        .sidebar .profile-info {
+            flex: 1 !important;
+            display: flex !important;
+            flex-direction: column !important;
+            gap: 5px !important;
+        }
+
+        .sidebar .username {
+            font-size: 16px !important;
+            font-weight: bold !important;
+            color: #333 !important;
+            margin: 0 !important;
+        }
+
+        .sidebar .user-role {
+            display: flex !important;
+            align-items: center !important;
+        }
+
+        .sidebar .role-badge {
+            font-size: 12px !important;
+            font-weight: bold !important;
+            padding: 3px 8px !important;
+            border-radius: 3px !important;
+            text-transform: uppercase !important;
+        }
+
+        .sidebar .role-admin {
+            background-color: #ffcccc !important;
+            color: #990000 !important;
+        }
+
+        .sidebar .role-store_clerk {
+            background-color: #ccffcc !important;
+            color: #006600 !important;
+        }
+
+        .sidebar .role-cashier {
+            background-color: #ffffcc !important;
+            color: #996600 !important;
+        }
+
+        .sidebar .online-status {
+            display: flex !important;
+            align-items: center !important;
+            gap: 5px !important;
+            font-size: 14px !important;
+            color: #009900 !important;
+            font-weight: 500 !important;
+        }
+
+        /* Navigation styles */
+        .sidebar .sidebar-nav {
+            flex: 1 !important;
+            display: flex !important;
+            flex-direction: column !important;
+            gap: 8px !important;
+            margin-bottom: 20px !important;
+        }
+
+        .sidebar .nav-link {
+            color: #333 !important;
+            text-decoration: none !important;
+            padding: 12px 15px !important;
+            border-radius: 3px !important;
+            background-color: #fff !important;
+            border: 1px solid #ddd !important;
+            font-weight: normal !important;
+        }
+
+        .sidebar .nav-link:hover {
+            background-color: #e9ecef !important;
+            color: #000 !important;
+        }
+
+        .sidebar .nav-link.active {
+            background-color: #0066cc !important;
+            color: white !important;
+            font-weight: bold !important;
+        }
+
+        /* Sidebar footer styles */
+        .sidebar .sidebar-footer {
+            margin-top: auto !important;
+            display: flex !important;
+            flex-direction: column !important;
+            gap: 8px !important;
+        }
+
+        .sidebar .sidebar-footer a {
+            text-decoration: none !important;
+            display: flex !important;
+            align-items: center !important;
+            gap: 8px !important;
+            padding: 10px !important;
+            border-radius: 3px !important;
+            font-weight: normal !important;
+            color: #333 !important;
+        }
+
+        .sidebar .sidebar-footer a:hover {
+            background-color: #f8f9fa !important;
+        }
+
+        .sidebar .sidebar-footer a:first-child {
+            color: #0066cc !important;
+        }
+
+        .sidebar .sidebar-footer a:first-child:hover {
+            background-color: #e6f3ff !important;
+        }
+
+        .sidebar .sidebar-footer a.logout {
+            color: #cc0000 !important;
+        }
+
+        .sidebar .sidebar-footer a.logout:hover {
+            background-color: #ffe6e6 !important;
+        }
+
+        /* quick styling for this page */        .user-management-container {
+            padding: 20px;
+            max-width: 1200px;
+        }
+
+        /* simple button styles */
         .btn {
-            padding: 0.75rem 1.5rem;
+            padding: 8px 16px;
             border: none;
-            border-radius: 8px;
-            font-weight: 500;
+            border-radius: 4px;
             cursor: pointer;
             text-decoration: none;
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            transition: all 0.2s;
-            font-size: 0.875rem;
+            display: inline-block;
+            margin: 2px;
+            font-size: 14px;
         }
 
         .btn-primary {
-            background-color: #3b82f6;
+            background-color: #0066cc;
             color: white;
         }
 
         .btn-primary:hover {
-            background-color: #2563eb;
-            transform: translateY(-1px);
+            background-color: #0052a3;
         }
 
         .btn-secondary {
-            background-color: #6b7280;
+            background-color: #666;
             color: white;
         }
 
         .btn-secondary:hover {
-            background-color: #4b5563;
+            background-color: #444;
         }
 
         .btn-success {
-            background-color: #10b981;
+            background-color: #28a745;
             color: white;
         }
 
@@ -250,98 +391,86 @@ $current_page = 'users_crud';
         .btn-warning {
             background-color: #f59e0b;
             color: white;
-        }
-
-        .btn-warning:hover {
-            background-color: #d97706;
+        }        .btn-warning:hover {
+            background-color: #e0a800;
         }
 
         .btn-danger {
-            background-color: #ef4444;
+            background-color: #dc3545;
             color: white;
         }
 
         .btn-danger:hover {
-            background-color: #dc2626;
+            background-color: #c82333;
         }
 
         .btn-sm {
-            padding: 0.5rem 1rem;
-            font-size: 0.75rem;
+            padding: 4px 8px;
+            font-size: 12px;
         }
 
+        /* simple card style */
         .card {
             background: white;
-            border-radius: 12px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-            margin-bottom: 2rem;
-            overflow: hidden;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            margin-bottom: 20px;
         }
 
         .card-header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 1.5rem;
-            border-bottom: 1px solid #e5e7eb;
+            background: #f8f9fa;
+            color: black;
+            padding: 15px;
+            border-bottom: 1px solid #ddd;
         }
 
         .card-header h2 {
             margin: 0;
-            font-size: 1.25rem;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
+            font-size: 18px;
+            font-weight: bold;
         }
 
         .card-content {
-            padding: 2rem;
-        }
-
+            padding: 20px;
+        }        /* form layout */
         .form-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 1.5rem;
-            margin-bottom: 2rem;
+            margin-bottom: 20px;
         }
-
+        
         .form-group {
-            margin-bottom: 0;
+            margin-bottom: 15px;
         }
 
         .form-group label {
             display: block;
-            margin-bottom: 0.5rem;
-            color: #374151;
-            font-weight: 500;
-            font-size: 0.875rem;
+            margin-bottom: 5px;
+            color: black;
+            font-weight: bold;
+            font-size: 14px;
         }
 
+        /* basic form inputs */
         .form-group input,
         .form-group select {
             width: 100%;
-            padding: 0.875rem;
-            border: 2px solid #e5e7eb;
-            border-radius: 8px;
-            font-size: 0.875rem;
-            transition: border-color 0.2s, box-shadow 0.2s;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            font-size: 14px;
             box-sizing: border-box;
         }
 
         .form-group input:focus,
         .form-group select:focus {
             outline: none;
-            border-color: #3b82f6;
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+            border-color: #0066cc;
         }
 
         .form-actions {
-            margin-top: 2rem;
-            display: flex;
-            gap: 1rem;
-            justify-content: flex-end;
+            margin-top: 20px;
         }
 
+        /* basic table */
         .table-container {
             overflow-x: auto;
         }
@@ -350,112 +479,89 @@ $current_page = 'users_crud';
             width: 100%;
             border-collapse: collapse;
             margin: 0;
-        }
-
-        .table th,
+        }        .table th,
         .table td {
-            padding: 1rem;
+            padding: 10px;
             text-align: left;
-            border-bottom: 1px solid #e5e7eb;
+            border-bottom: 1px solid #ddd;
         }
 
         .table th {
-            background-color: #f8fafc;
-            font-weight: 600;
-            color: #374151;
-            font-size: 0.875rem;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
+            background-color: #f8f9fa;
+            font-weight: bold;
+            color: black;
+            font-size: 14px;
         }
 
         .table td {
-            color: #6b7280;
-            font-size: 0.875rem;
+            color: #333;
+            font-size: 14px;
         }
 
         .table tbody tr:hover {
-            background-color: #f9fafb;
+            background-color: #f5f5f5;
         }
 
+        /* simple role badges */
         .role-badge {
-            padding: 0.25rem 0.75rem;
-            border-radius: 9999px;
-            font-size: 0.75rem;
-            font-weight: 500;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }        .role-admin {
-            background-color: #fee2e2;
-            color: #dc2626;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .role-admin {
+            background-color: #ffebee;
+            color: #c62828;
         }
 
         .role-store_clerk {
-            background-color: #d1fae5;
-            color: #059669;
+            background-color: #e8f5e8;
+            color: #2e7d2e;
+        }        .role-cashier {
+            background-color: #fff3e0;
+            color: #ef6c00;
         }
-
-        .role-cashier {
-            background-color: #fef3c7;
-            color: #d97706;
-        }
-
-        .actions {
+          .actions {
             display: flex;
-            gap: 0.5rem;
-            align-items: center;
+            gap: 5px;
         }
-
+        
+        /* alert messages */
         .alert {
-            padding: 1rem;
-            border-radius: 8px;
-            margin-bottom: 1.5rem;
-            font-size: 0.875rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            font-size: 14px;
         }
 
         .alert-success {
-            background-color: #d1fae5;
-            color: #065f46;
-            border: 1px solid #a7f3d0;
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
         }
 
         .alert-error {
-            background-color: #fee2e2;
-            color: #991b1b;
-            border: 1px solid #fecaca;
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
         }
 
         .delete-form {
             display: inline;
         }
 
+        /* when no users found */
         .empty-state {
             text-align: center;
-            padding: 3rem;
-            color: #6b7280;
+            padding: 50px;
+            color: #666;
         }
 
         .empty-state i {
-            font-size: 3rem;
-            margin-bottom: 1rem;
-            color: #d1d5db;
-        }
-
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1rem;
-            margin-bottom: 2rem;
-        }
-
-        .stat-card {
-            background: white;
-            padding: 1.5rem;
-            border-radius: 12px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-            text-align: center;
+            font-size: 48px;
+            margin-bottom: 10px;
+            color: #ccc;
         }
 
         .stat-card .icon {
@@ -475,80 +581,61 @@ $current_page = 'users_crud';
             font-weight: 700;
             color: #1f2937;
             margin-bottom: 0.5rem;
-        }
-
-        .stat-card .label {
+        }        .stat-card .label {
             color: #6b7280;
             font-size: 0.875rem;
             font-weight: 500;
         }
-
+        
+        /* mobile adjustments - basic stuff */
         @media (max-width: 768px) {
-            .form-grid {
-                grid-template-columns: 1fr;
-            }
-            
-            .content-header {
-                flex-direction: column;
-                gap: 1rem;
-                align-items: flex-start;
-            }
-            
-            .header-actions {
-                width: 100%;
-                justify-content: flex-start;
-            }
-            
             .table {
-                font-size: 0.75rem;
+                font-size: 12px;
             }
             
             .table th,
             .table td {
-                padding: 0.5rem;
+                padding: 5px;
             }
         }
     </style>
 </head>
-<body>
-    <div class="dashboard-container">        <!-- Include Sidebar -->
-        <?php require_once 'templates/sidebar.php'; ?>
-
-        <!-- Main Content -->
+<body>    <div class="dashboard-container">
+        <!-- sidebar goes here -->
+        <?php 
+        $current_page = 'users_crud';
+        require_once 'templates/sidebar.php'; 
+        ?><!-- main page content -->
         <main class="main-content">
-            <div class="user-management-container">
-                <!-- Content Header -->
-                <div class="content-header">
-                    <h1>
-                        <i class="fas fa-users-cog"></i> 
-                        User Management
-                    </h1>
-                    <div class="header-actions">
-                        <?php if ($action !== 'list'): ?>
-                            <a href="?action=list" class="btn btn-secondary">
-                                <i class="fas fa-arrow-left"></i> Back to List
-                            </a>
-                        <?php endif; ?>
-                        <?php if ($action === 'list'): ?>
-                            <a href="?action=create" class="btn btn-primary">
-                                <i class="fas fa-user-plus"></i> Add New User
-                            </a>
-                        <?php endif; ?>
-                    </div>
+            <header class="dashboard-header">
+                <h1>👥 User Management</h1>
+                <div class="header-actions">
+                    <?php if ($action !== 'list'): ?>
+                        <a href="?action=list" class="btn btn-secondary">
+                            ⬅️ Back to List
+                        </a>
+                    <?php endif; ?>
+                    <?php if ($action === 'list'): ?>
+                        <a href="?action=create" class="btn btn-primary">
+                            ➕ Add New User
+                        </a>
+                    <?php endif; ?>
                 </div>
+            </header>
 
-                <!-- Alert Messages -->
-                <?php if (!empty($error)): ?>
-                    <div class="alert alert-error">
-                        <i class="fas fa-exclamation-triangle"></i>
-                        <?php echo htmlspecialchars($error); ?>
+            <div class="user-management-container">
+
+                <!-- show error or success messages -->
+                <?php if (!empty($error)): ?>                <div class="alert alert-error">
+                        ⚠️
+                        <strong>Error:</strong> <?php echo htmlspecialchars($error); ?>
                     </div>
                 <?php endif; ?>
 
                 <?php if (!empty($success)): ?>
                     <div class="alert alert-success">
-                        <i class="fas fa-check-circle"></i>
-                        <?php echo htmlspecialchars($success); ?>
+                        ✅
+                        <strong>Success:</strong> <?php echo htmlspecialchars($success); ?>
                     </div>
                 <?php endif; ?>
 
@@ -564,24 +651,23 @@ $current_page = 'users_crud';
                     ");
                     $stats = $stats_query->fetch_assoc();
                     ?>
-                    <div class="stats-grid">
-                        <div class="stat-card">
+                    <div class="stats-grid">                        <div class="stat-card">
                             <div class="icon" style="background-color: #3b82f6;">
-                                <i class="fas fa-users"></i>
+                                👥
                             </div>
                             <div class="number"><?php echo $stats['total_users']; ?></div>
                             <div class="label">Total Users</div>
                         </div>
                         <div class="stat-card">
                             <div class="icon" style="background-color: #ef4444;">
-                                <i class="fas fa-user-shield"></i>
+                                🛡️
                             </div>
                             <div class="number"><?php echo $stats['admin_count']; ?></div>
                             <div class="label">Admins</div>
                         </div>
                         <div class="stat-card">
                             <div class="icon" style="background-color: #f59e0b;">
-                                <i class="fas fa-cash-register"></i>
+                                💼
                             </div>
                             <div class="number"><?php echo $stats['cashier_count'] + $stats['clerk_count']; ?></div>
                             <div class="label">Staff</div>
@@ -591,10 +677,9 @@ $current_page = 'users_crud';
 
                 <?php if ($action === 'create' || $action === 'edit'): ?>
                     <!-- User Form -->
-                    <div class="card">
-                        <div class="card-header">
+                    <div class="card">                        <div class="card-header">
                             <h2>
-                                <i class="fas fa-<?php echo $action === 'create' ? 'user-plus' : 'user-edit'; ?>"></i>
+                                <?php echo $action === 'create' ? '➕' : '✏️'; ?>
                                 <?php echo $action === 'create' ? 'Add New User' : 'Edit User'; ?>
                             </h2>
                         </div>
@@ -605,10 +690,9 @@ $current_page = 'users_crud';
                                     <input type="hidden" name="user_id" value="<?php echo $edit_user['id']; ?>">
                                 <?php endif; ?>
                                 
-                                <div class="form-grid">
-                                    <div class="form-group">
+                                <div class="form-grid">                                    <div class="form-group">
                                         <label for="full_name">
-                                            <i class="fas fa-id-card"></i> Full Name
+                                            🆔 Full Name
                                         </label>
                                         <input type="text" id="full_name" name="full_name" 
                                                placeholder="Enter full name"
@@ -617,7 +701,7 @@ $current_page = 'users_crud';
                                     
                                     <div class="form-group">
                                         <label for="username">
-                                            <i class="fas fa-user"></i> Username
+                                            👤 Username
                                         </label>
                                         <input type="text" id="username" name="username" 
                                                placeholder="Enter username"
@@ -626,7 +710,7 @@ $current_page = 'users_crud';
                                     
                                     <div class="form-group">
                                         <label for="email">
-                                            <i class="fas fa-envelope"></i> Email Address
+                                            📧 Email Address
                                         </label>
                                         <input type="email" id="email" name="email" 
                                                placeholder="Enter email address"
@@ -635,8 +719,8 @@ $current_page = 'users_crud';
                                     
                                     <div class="form-group">
                                         <label for="role">
-                                            <i class="fas fa-user-tag"></i> User Role
-                                        </label>                                        <select id="role" name="role" required>
+                                            🏷️ User Role
+                                        </label><select id="role" name="role" required>
                                             <option value="">Select Role</option>
                                             <option value="admin" <?php echo ($action === 'edit' && $edit_user['role'] === 'admin') ? 'selected' : ''; ?>>
                                                 Admin - Overall Operations & System Management
@@ -649,10 +733,9 @@ $current_page = 'users_crud';
                                             </option>
                                         </select>
                                     </div>
-                                    
-                                    <div class="form-group">
+                                      <div class="form-group">
                                         <label for="password">
-                                            <i class="fas fa-lock"></i> Password 
+                                            🔒 Password 
                                             <?php echo $action === 'edit' ? '(leave blank to keep current)' : ''; ?>
                                         </label>
                                         <input type="password" id="password" name="password" 
@@ -660,14 +743,13 @@ $current_page = 'users_crud';
                                                <?php echo $action === 'create' ? 'required' : ''; ?>>
                                     </div>
                                 </div>
-                                
-                                <div class="form-actions">
+                                  <div class="form-actions">
                                     <button type="submit" class="btn btn-<?php echo $action === 'create' ? 'success' : 'primary'; ?>">
-                                        <i class="fas fa-<?php echo $action === 'create' ? 'plus' : 'save'; ?>"></i>
+                                        <?php echo $action === 'create' ? '➕' : '💾'; ?>
                                         <?php echo $action === 'create' ? 'Create User' : 'Update User'; ?>
                                     </button>
                                     <a href="?action=list" class="btn btn-secondary">
-                                        <i class="fas fa-times"></i> Cancel
+                                        ❌ Cancel
                                     </a>
                                 </div>
                             </form>
@@ -677,10 +759,9 @@ $current_page = 'users_crud';
 
                 <?php if ($action === 'list'): ?>
                     <!-- Users Table -->
-                    <div class="card">
-                        <div class="card-header">
+                    <div class="card">                        <div class="card-header">
                             <h2>
-                                <i class="fas fa-list"></i> 
+                                📋 
                                 All Users (<?php echo $result ? $result->num_rows : 0; ?>)
                             </h2>
                         </div>
@@ -689,13 +770,13 @@ $current_page = 'users_crud';
                                 <div class="table-container">
                                     <table class="table">                                        <thead>
                                             <tr>
-                                                <th><i class="fas fa-hashtag"></i> ID</th>
-                                                <th><i class="fas fa-id-card"></i> Full Name</th>
-                                                <th><i class="fas fa-user"></i> Username</th>
-                                                <th><i class="fas fa-envelope"></i> Email</th>
-                                                <th><i class="fas fa-user-tag"></i> Role</th>
-                                                <th><i class="fas fa-calendar"></i> Created</th>
-                                                <th><i class="fas fa-cogs"></i> Actions</th>
+                                                <th>#️⃣ ID</th>
+                                                <th>🆔 Full Name</th>
+                                                <th>👤 Username</th>
+                                                <th>📧 Email</th>
+                                                <th>🏷️ Role</th>
+                                                <th>📅 Created</th>
+                                                <th>⚙️ Actions</th>
                                             </tr>
                                         </thead>
                                         <tbody>                                            <?php while($row = $result->fetch_assoc()): ?>
@@ -719,21 +800,20 @@ $current_page = 'users_crud';
                                                 </td>
                                                 <td><?php echo date('M j, Y', strtotime($row['created_at'])); ?></td>
                                                 <td>
-                                                    <div class="actions">
-                                                        <a href="?action=edit&id=<?php echo $row['id']; ?>" class="btn btn-warning btn-sm" title="Edit User">
-                                                            <i class="fas fa-edit"></i>
+                                                    <div class="actions">                                                        <a href="?action=edit&id=<?php echo $row['id']; ?>" class="btn btn-warning btn-sm" title="Edit User">
+                                                            ✏️
                                                         </a>
                                                         <?php if ($row['username'] !== 'admin'): ?>
                                                             <form method="POST" class="delete-form" onsubmit="return confirm('Are you sure you want to delete this user? This action cannot be undone.');">
                                                                 <input type="hidden" name="action" value="delete">
                                                                 <input type="hidden" name="user_id" value="<?php echo $row['id']; ?>">
                                                                 <button type="submit" class="btn btn-danger btn-sm" title="Delete User">
-                                                                    <i class="fas fa-trash"></i>
+                                                                    🗑️
                                                                 </button>
                                                             </form>
                                                         <?php else: ?>
                                                             <span class="btn btn-secondary btn-sm" style="opacity: 0.5; cursor: not-allowed;" title="Cannot delete main admin">
-                                                                <i class="fas fa-shield-alt"></i>
+                                                                🛡️
                                                             </span>
                                                         <?php endif; ?>
                                                     </div>
@@ -743,13 +823,12 @@ $current_page = 'users_crud';
                                         </tbody>
                                     </table>
                                 </div>
-                            <?php else: ?>
-                                <div class="empty-state">
-                                    <i class="fas fa-users"></i>
+                            <?php else: ?>                                <div class="empty-state">
+                                    👥
                                     <h3>No Users Found</h3>
                                     <p>Get started by creating your first user account.</p>
                                     <a href="?action=create" class="btn btn-primary">
-                                        <i class="fas fa-user-plus"></i> Create First User
+                                        ➕ Create First User
                                     </a>
                                 </div>
                             <?php endif; ?>
@@ -769,3 +848,5 @@ $current_page = 'users_crud';
     </script>
 </body>
 </html>
+
+
