@@ -1,34 +1,40 @@
 <?php
+// login.php - this is where users log in to the system
+// learned about sessions in php class
 session_start();
 require_once 'config/db.php';
 require_once 'config/activity_logger.php';
 
-// Initialize activity logger
+// make activity logger object
 $activityLogger = new UserActivityLogger($conn);
 
-// If user is already logged in, redirect to dashboard
+// if user already logged in, send them to dashboard
 if (isset($_SESSION['user_id'])) {
     header("Location: dashboard.php");
     exit();
 }
 
+// check if form was submitted
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = $_POST['username'];
     $password = $_POST['password'];
     
+    // look up user in database
     $stmt = $conn->prepare("SELECT id, username, password, role FROM users WHERE username = ?");
     $stmt->bind_param("s", $username);
     $stmt->execute();
     $result = $stmt->get_result();
     
     if ($user = $result->fetch_assoc()) {
-        
-        if (password_verify($password, $user['password'])) {            $_SESSION['user_id'] = $user['id'];
+        // check if password is correct
+        if (password_verify($password, $user['password'])) {
+            // set session variables - learned about this in web dev
+            $_SESSION['user_id'] = $user['id'];
             $_SESSION['username'] = $user['username'];
             $_SESSION['role'] = $user['role'];
             $_SESSION['last_activity'] = time();
             
-            // Log the successful login
+            // log the login for tracking
             $activityLogger->logLogin($user['id'], $user['username'], $user['role']);
             
             header("Location: dashboard.php");
@@ -48,7 +54,78 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - Inventory Management System</title>
     <link rel="stylesheet" href="css/style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        /* basic login page styling - learned CSS basics */
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+            margin: 0;
+            padding: 20px;
+        }
+        
+        .login-container {
+            max-width: 400px;
+            margin: 50px auto;
+            background: white;
+            padding: 30px;
+            border-radius: 5px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .login-header h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+        
+        .login-header p {
+            color: #666;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        .form-group {
+            margin: 15px 0;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            font-size: 16px;
+        }
+        
+        .btn {
+            width: 100%;
+            padding: 12px;
+            background-color: #0066cc;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        
+        .btn:hover {
+            background-color: #0052a3;
+        }
+        
+        .error-message {
+            background-color: #ffcccc;
+            color: #cc0000;
+            padding: 10px;
+            border-radius: 3px;
+            margin: 10px 0;
+            text-align: center;
+        }
+    </style>
 </head>
 <body>
     <div class="main-container">
@@ -64,21 +141,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <form method="POST" class="login-form">
                     <div class="form-group">
                         <label for="username">Username</label>
-                        <div class="input-with-icon">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-                                <circle cx="12" cy="7" r="4"></circle>
-                            </svg>
-                            <input type="text" id="username" name="username" placeholder="Enter your username" required>
-                        </div>
+                        <input type="text" id="username" name="username" placeholder="Enter your username" required>
                     </div>
                     <div class="form-group">
                         <label for="password">Password</label>
-                        <div class="input-with-icon">                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-                                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-                            </svg>
-                            <input type="password" id="password" name="password" placeholder="Enter your password" required>
+                        <input type="password" id="password" name="password" placeholder="Enter your password" required>
                         </div>
                     </div>
                     
