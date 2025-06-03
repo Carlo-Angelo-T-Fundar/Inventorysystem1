@@ -1,12 +1,13 @@
 <?php
+// profile.php - user profile page
 require_once 'config/db.php';
 require_once 'config/auth.php';
 
-// Initialize variables
+// variables for messages
 $success_message = '';
 $error_message = '';
 
-// Get user data
+// get current user's data from database
 $user_id = $_SESSION['user_id'];
 $stmt = $conn->prepare("SELECT username, email, role, created_at FROM users WHERE id = ?");
 $stmt->bind_param("i", $user_id);
@@ -14,22 +15,23 @@ $stmt->execute();
 $result = $stmt->get_result();
 $user = $result->fetch_assoc();
 
+// if no user found, send back to login
 if (!$user) {
     header('Location: login.php');
     exit();
 }
 
-// Get user role for display
+// get user role
 $user_role = getCurrentUserRole($conn);
 
-// If user submits form to update profile settings
+// handle form submission when user updates profile
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['action'])) {
         if ($_POST['action'] === 'update_profile') {
-            // Update email
+            // update email address
             $new_email = filter_var($_POST['email'], FILTER_VALIDATE_EMAIL);
             if ($new_email) {
-                // Check if email already exists for another user
+                // check if another user already has this email
                 $check_email = $conn->prepare("SELECT id FROM users WHERE email = ? AND id != ?");
                 $check_email->bind_param("si", $new_email, $user_id);
                 $check_email->execute();
@@ -38,11 +40,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($email_result->num_rows > 0) {
                     $error_message = "Email address is already in use by another account";
                 } else {
+                    // update the email in database
                     $update = $conn->prepare("UPDATE users SET email = ? WHERE id = ?");
                     $update->bind_param("si", $new_email, $user_id);
                     if ($update->execute()) {
                         $success_message = "Profile updated successfully";
-                        $user['email'] = $new_email;
+                        $user['email'] = $new_email; // update local variable too
                     } else {
                         $error_message = "Failed to update profile";
                     }
@@ -62,11 +65,66 @@ $page_title = "Profile";
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Profile - Inventory System</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- basic styling instead of fancy external fonts -->
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/dashboard.css">
     <link rel="stylesheet" href="css/sidebar.css">
+    <style>
+        /* basic profile page styles - learned CSS in web design class */
+        .profile-card {
+            background: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            margin: 20px 0;
+        }
+        
+        .form-group {
+            margin: 15px 0;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+        }
+        
+        .btn {
+            background-color: #0066cc;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        
+        .btn:hover {
+            background-color: #0052a3;
+        }
+        
+        .alert {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 3px;
+        }
+        
+        .alert-success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        
+        .alert-danger {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+    </style>
 </head>
 <body>
     <div class="dashboard-container">
