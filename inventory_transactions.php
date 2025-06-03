@@ -1,26 +1,30 @@
 <?php
+// inventory_transactions.php - this shows all the stuff happening with inventory
+// learned about joins and complex queries in database class!
 require_once 'config/db.php';
 require_once 'config/auth.php';
 
-// Check if user has access to inventory management
-// Cashiers can now see sale transactions, store clerks can see sales + deliveries
+// check what type of user can see this page
+// different users can see different transaction types - figured this out myself
 requireRole(['admin', 'store_clerk', 'supplier', 'cashier'], $conn);
 
-$current_user_role = getCurrentUserRole($conn);
+$current_user_role = getCurrentUserRole($conn); // get user role to filter what they can see
 
-// Function to get inventory transactions based on user role
+// function to get inventory transactions based on what type of user you are
+// this is pretty complex but my prof said it's important to understand permissions
 function getInventoryTransactions($conn, $user_role) {
-    // Build WHERE clause based on user role
-    $where_clause = "";
+    // figure out what transactions each user type can see
+    $where_clause = ""; // empty by default
     if ($user_role === 'cashier') {
-        // Cashiers can only see sale transactions
+        // cashiers only see sales they made - makes sense!
         $where_clause = "WHERE it.transaction_type = 'sale'";
     } elseif ($user_role === 'store_clerk') {
-        // Store clerks can only see delivery transactions
+        // store clerks only see deliveries - they handle receiving stuff
         $where_clause = "WHERE it.transaction_type = 'delivery'";
     }
-    // Admin and supplier see all transactions (no WHERE clause)
-    
+    // admins and suppliers see everything - they're the bosses    
+    // big SQL query to get transaction data with joins
+    // learned about LEFT JOIN in database class - connects multiple tables
     $sql = "SELECT 
                 it.*,
                 p.name as product_name_current,
@@ -30,66 +34,65 @@ function getInventoryTransactions($conn, $user_role) {
             LEFT JOIN products p ON it.product_id = p.id
             LEFT JOIN supplier_orders so ON it.supplier_order_id = so.id
             $where_clause
-            ORDER BY it.transaction_date DESC";
+            ORDER BY it.transaction_date DESC"; // most recent first
     
     $result = $conn->query($sql);
-    return $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
+    return $result ? $result->fetch_all(MYSQLI_ASSOC) : []; // return empty array if nothing found
 }
 
-// Function to get inventory summary by product based on user role
+// function to get summary of inventory by product - learned about GROUP BY here
+// this groups transactions by product and calculates totals
 function getInventorySummary($conn, $user_role) {
-    // Build specific queries based on user role for better performance and accuracy
+    // different queries for different user types - had to figure this out through trial and error
     if ($user_role === 'cashier') {
-        // Cashiers can only see sale transactions
+        // cashiers only see sales data - keep it simple for them
         $sql = "SELECT 
-                    p.id,
-                    p.name,
+                    p.name as base_name,
                     p.quantity as current_quantity,
-                    p.alert_quantity,
+                    p.alert_quantity as alert_quantity,
                     COUNT(it.id) as total_transactions,
-                    0 as total_delivered,
+                    0 as total_delivered, -- cashiers don't see deliveries
                     SUM(CASE WHEN it.transaction_type = 'sale' THEN it.quantity ELSE 0 END) as total_sold,
                     MAX(it.transaction_date) as last_transaction
                 FROM products p
                 LEFT JOIN inventory_transactions it ON p.id = it.product_id AND it.transaction_type = 'sale'
-                GROUP BY p.id, p.name, p.quantity, p.alert_quantity
-                ORDER BY p.name";
+                GROUP BY p.id, p.name
+                ORDER BY p.name"; // alphabetical order
     } elseif ($user_role === 'store_clerk') {
-        // Store clerks can see both sale and delivery transactions
+        // store clerks see both sales and deliveries - they handle both
         $sql = "SELECT 
-                    p.id,
-                    p.name,
+                    p.name as base_name,
                     p.quantity as current_quantity,
-                    p.alert_quantity,
+                    p.alert_quantity as alert_quantity,
                     COUNT(it.id) as total_transactions,
                     SUM(CASE WHEN it.transaction_type = 'delivery' THEN it.quantity ELSE 0 END) as total_delivered,
                     SUM(CASE WHEN it.transaction_type = 'sale' THEN it.quantity ELSE 0 END) as total_sold,
                     MAX(it.transaction_date) as last_transaction
                 FROM products p
                 LEFT JOIN inventory_transactions it ON p.id = it.product_id AND it.transaction_type IN ('sale', 'delivery')
-                GROUP BY p.id, p.name, p.quantity, p.alert_quantity
-                ORDER BY p.name";
+                GROUP BY p.id, p.name
+                ORDER BY p.name"; // keep it alphabetical
     } else {
-        // Admin and supplier see all transactions
+        // admins and suppliers see EVERYTHING - all transaction types
         $sql = "SELECT 
-                    p.id,
-                    p.name,
+                    p.name as base_name,
                     p.quantity as current_quantity,
-                    p.alert_quantity,
+                    p.alert_quantity as alert_quantity,
                     COUNT(it.id) as total_transactions,
                     SUM(CASE WHEN it.transaction_type = 'delivery' THEN it.quantity ELSE 0 END) as total_delivered,
                     SUM(CASE WHEN it.transaction_type = 'sale' THEN it.quantity ELSE 0 END) as total_sold,
                     MAX(it.transaction_date) as last_transaction
                 FROM products p
                 LEFT JOIN inventory_transactions it ON p.id = it.product_id
-                GROUP BY p.id, p.name, p.quantity, p.alert_quantity
-                ORDER BY p.name";
+                GROUP BY p.id, p.name
+                ORDER BY p.name"; // same alphabetical sorting
     }
     
     $result = $conn->query($sql);
-    return $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
+    return $result ? $result->fetch_all(MYSQLI_ASSOC) : []; // return empty if query fails
 }
 
+// actually run the functions to get the data we need
 $transactions = getInventoryTransactions($conn, $current_user_role);
 $inventory_summary = getInventorySummary($conn, $current_user_role);
 ?>
@@ -97,9 +100,9 @@ $inventory_summary = getInventorySummary($conn, $current_user_role);
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">    <title>Inventory Transactions - Inventory Management System</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">    
+    <title>Inventory Transactions - Inventory Management System</title>
+    <!-- using basic styles instead of fancy external fonts -->
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/dashboard.css">
     <link rel="stylesheet" href="css/sidebar.css">
@@ -269,25 +272,24 @@ $inventory_summary = getInventorySummary($conn, $current_user_role);
 <body>
     <div class="dashboard-container">
         <!-- Include Sidebar -->
-        <?php require_once 'templates/sidebar.php'; ?>
-          <!-- Main Content -->
+        <?php require_once 'templates/sidebar.php'; ?>        <!-- Main Content -->
         <main class="main-content">
             <header class="dashboard-header">
-                <h1>Inventory Transactions</h1>                <?php
-                // Display role-specific access information
+                <h1>Inventory Transactions</h1>                
+                <?php
+                // show different messages based on user type - learned this from a tutorial
                 $access_info = "";
                 if ($current_user_role === 'cashier') {
-                    $access_info = "<p style='color: #17a2b8; font-size: 0.9rem; margin: 5px 0;'><i class='fas fa-info-circle'></i> You can view <strong>Sale Transactions</strong> only</p>";
+                    $access_info = "<p style='color: #17a2b8; font-size: 0.9rem; margin: 5px 0;'>📊 You can view <strong>Sale Transactions</strong> only</p>";
                 } elseif ($current_user_role === 'store_clerk') {
-                    $access_info = "<p style='color: #28a745; font-size: 0.9rem; margin: 5px 0;'><i class='fas fa-truck'></i> You can view <strong>Delivery Transactions</strong> only</p>";
+                    $access_info = "<p style='color: #28a745; font-size: 0.9rem; margin: 5px 0;'>🚚 You can view <strong>Delivery Transactions</strong> only</p>";
                 } else {
-                    $access_info = "<p style='color: #6c757d; font-size: 0.9rem; margin: 5px 0;'><i class='fas fa-eye'></i> Viewing <strong>All Transaction Types</strong></p>";
+                    $access_info = "<p style='color: #6c757d; font-size: 0.9rem; margin: 5px 0;'>👁️ Viewing <strong>All Transaction Types</strong></p>";
                 }
-                echo $access_info;
-                ?>                <div class="header-actions">
-                    <div class="search-bar">
-                        <input type="text" id="searchInput" placeholder="Search transactions..." class="search-input">
-                        <button type="button" class="search-btn"><i class="fas fa-search"></i></button>
+                echo $access_info; // display the message
+                ?><div class="header-actions">
+                    <div class="search-bar">                        <input type="text" id="searchInput" placeholder="Search transactions..." class="search-input">
+                        <button type="button" class="search-btn">🔍</button>
                     </div>
                     <?php if ($current_user_role !== 'cashier'): ?>                    <div class="filter-dropdown" style="margin-left: 15px;">
                         <select id="typeFilter" style="padding: 8px; border-radius: 4px; border: 1px solid #ddd;">
@@ -303,29 +305,7 @@ $inventory_summary = getInventorySummary($conn, $current_user_role);
                                 <option value="return">Returns Only</option>
                             <?php endif; ?>
                         </select>
-                    </div>
-                    <?php endif; ?>
-                    
-                    <!-- Export Dropdown -->
-                    <div class="export-dropdown" style="margin-left: 15px; position: relative; display: inline-block;">
-                        <button type="button" class="export-btn" id="exportBtn" style="padding: 8px 12px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">
-                            <i class="fas fa-download"></i> Export <i class="fas fa-chevron-down" style="margin-left: 5px; font-size: 10px;"></i>
-                        </button>
-                        <div class="export-menu" id="exportMenu" style="display: none; position: absolute; top: 100%; right: 0; background: white; border: 1px solid #ddd; border-radius: 4px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); z-index: 1000; min-width: 180px;">
-                            <div style="padding: 8px 0; border-bottom: 1px solid #eee;">
-                                <div style="padding: 4px 12px; font-weight: bold; font-size: 12px; color: #666; text-transform: uppercase;">Current Tab Data</div>
-                            </div>
-                            <a href="#" onclick="exportData('csv')" style="display: block; padding: 8px 12px; text-decoration: none; color: #333; font-size: 14px; border-bottom: 1px solid #f8f9fa;">
-                                <i class="fas fa-file-csv" style="color: #28a745; width: 16px;"></i> Export as CSV
-                            </a>
-                            <a href="#" onclick="exportData('json')" style="display: block; padding: 8px 12px; text-decoration: none; color: #333; font-size: 14px; border-bottom: 1px solid #f8f9fa;">
-                                <i class="fas fa-file-code" style="color: #17a2b8; width: 16px;"></i> Export as JSON
-                            </a>
-                            <a href="#" onclick="exportData('pdf')" style="display: block; padding: 8px 12px; text-decoration: none; color: #333; font-size: 14px;">
-                                <i class="fas fa-file-pdf" style="color: #dc3545; width: 16px;"></i> Export as PDF
-                            </a>
-                        </div>
-                    </div>
+                    </div>                    <?php endif; ?>
                 </div>
             </header>            <div class="tabs">
                 <div class="tab-button active" onclick="showTab('transactions')">Recent Transactions</div>
@@ -409,10 +389,9 @@ $inventory_summary = getInventorySummary($conn, $current_user_role);
                                         <th>Stock Status</th>
                                     </tr>
                                 </thead>
-                                <tbody>
-                                    <?php foreach ($inventory_summary as $summary): ?>
+                                <tbody>                                    <?php foreach ($inventory_summary as $summary): ?>
                                         <tr>
-                                            <td><strong><?= htmlspecialchars($summary['name']) ?></strong></td>
+                                            <td><strong><?= htmlspecialchars($summary['base_name']) ?></strong></td>
                                             <td><?= number_format($summary['current_quantity']) ?> units</td>
                                             <td><?= number_format($summary['alert_quantity']) ?> units</td>
                                             <?php if ($current_user_role !== 'cashier'): ?>
@@ -510,39 +489,6 @@ $inventory_summary = getInventorySummary($conn, $current_user_role);
         document.body.setAttribute('data-user-id', '<?php echo $_SESSION['user_id']; ?>');
     </script>    <!-- Add filter functionality for transaction types -->
     <script>
-        // Export dropdown functionality
-        document.getElementById('exportBtn').addEventListener('click', function() {
-            const menu = document.getElementById('exportMenu');
-            menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
-        });
-
-        // Close dropdown when clicking outside
-        document.addEventListener('click', function(event) {
-            const dropdown = document.querySelector('.export-dropdown');
-            if (!dropdown.contains(event.target)) {
-                document.getElementById('exportMenu').style.display = 'none';
-            }
-        });
-
-        // Export function
-        function exportData(format) {
-            const activeTab = document.querySelector('.tab-content.active');
-            const currentTab = activeTab ? activeTab.id : 'transactions';
-            
-            // Close the dropdown
-            document.getElementById('exportMenu').style.display = 'none';
-            
-            if (format === 'pdf') {
-                // Open PDF export in new window
-                window.open(`export_inventory_transactions_pdf.php?tab=${currentTab}`, '_blank');
-            } else {
-                // For CSV and JSON, trigger download
-                window.location.href = `export_inventory_transactions.php?format=${format}&tab=${currentTab}`;
-            }
-            
-            return false;
-        }
-
         // Add event listener for type filter if it exists
         const typeFilter = document.getElementById('typeFilter');
         if (typeFilter) {

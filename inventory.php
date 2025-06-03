@@ -1,35 +1,40 @@
 <?php
+// inventory.php - this handles product management stuff
+// includes database connection and checks if user can access this page
 require_once 'config/db.php';
 require_once 'config/auth.php';
 
-// Check if user has access to inventory management
-// Admins, store clerks, suppliers can edit inventory; cashiers can only view
+// check if user can access inventory - different users can do different things
+// admins and store clerks can edit, cashiers can only look
 requireRole(['admin', 'store_clerk', 'supplier', 'cashier'], $conn);
 
-$current_user_role = getCurrentUserRole($conn);
-$is_read_only = ($current_user_role === 'cashier');
+$current_user_role = getCurrentUserRole($conn); // figure out what type of user this is
+$is_read_only = ($current_user_role === 'cashier'); // cashiers can't edit anything
 
-// Function to get all products
+// function to get all products from database
+// learned about SQL in database class
 function getAllProducts($conn) {
-    // Check if quantity_arrived column exists
+    // check if we have the quantity_arrived column - might not exist in old databases
     $check_quantity_arrived = $conn->query("SHOW COLUMNS FROM products LIKE 'quantity_arrived'");
     $has_quantity_arrived = $check_quantity_arrived && $check_quantity_arrived->num_rows > 0;
     
     if (!$has_quantity_arrived) {
-        // Add missing quantity_arrived column
+        // add the column if it doesn't exist - learned about ALTER TABLE
         $conn->query("ALTER TABLE products ADD COLUMN quantity_arrived INT DEFAULT 0 AFTER quantity");
-        // Update existing products
+        // update existing products so they have some data
         $conn->query("UPDATE products SET quantity_arrived = quantity WHERE quantity_arrived = 0 OR quantity_arrived IS NULL");
     }
     
-    $sql = "SELECT * FROM products ORDER BY id ASC";
+    $sql = "SELECT * FROM products ORDER BY id ASC"; // get all products sorted by id
     $result = $conn->query($sql);
-    return $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
+    return $result ? $result->fetch_all(MYSQLI_ASSOC) : []; // return as array or empty array
 }
 
-// Function to add new product
+// function to add new product to database
+// this inserts a new row in the products table
 function addProduct($conn, $name, $quantity, $alert_quantity, $price, $quantity_arrived) {
     try {
+        // prepared statement to prevent SQL injection - learned this in security class
         $stmt = $conn->prepare("INSERT INTO products (name, quantity, quantity_arrived, alert_quantity, price) VALUES (?, ?, ?, ?, ?)");
         if (!$stmt) {
             throw new Exception("Prepare failed: " . $conn->error);
@@ -42,30 +47,143 @@ function addProduct($conn, $name, $quantity, $alert_quantity, $price, $quantity_
     }
 }
 
-// Function to delete product
+// function to delete product from database
+// function to reorder product IDs to maintain sequential numbering after deletion
+function reorderProductIds($conn) {
+    try {
+        // Start transaction for reordering
+        $conn->autocommit(false);
+        
+        // Get all products ordered by current ID
+        $result = $conn->query("SELECT id FROM products ORDER BY id ASC");
+        if (!$result) {
+            throw new Exception("Failed to fetch products for reordering");
+        }
+        
+        $products = $result->fetch_all(MYSQLI_ASSOC);
+        $new_id = 1;
+        
+        // Temporarily disable foreign key checks to allow ID updates
+        $conn->query("SET FOREIGN_KEY_CHECKS = 0");
+        
+        foreach ($products as $product) {
+            $old_id = $product['id'];
+            if ($old_id != $new_id) {
+                // Update product ID
+                $stmt = $conn->prepare("UPDATE products SET id = ? WHERE id = ?");
+                $stmt->bind_param("ii", $new_id, $old_id);
+                $stmt->execute();
+                
+                // Update related tables with new product ID
+                // Update product_audit_log
+                $audit_stmt = $conn->prepare("UPDATE product_audit_log SET product_id = ? WHERE product_id = ?");
+                if ($audit_stmt) {
+                    $audit_stmt->bind_param("ii", $new_id, $old_id);
+                    $audit_stmt->execute();
+                }
+                
+                // Update inventory_transactions if it exists
+                $trans_check = $conn->query("SHOW TABLES LIKE 'inventory_transactions'");
+                if ($trans_check && $trans_check->num_rows > 0) {
+                    $trans_stmt = $conn->prepare("UPDATE inventory_transactions SET product_id = ? WHERE product_id = ?");
+                    if ($trans_stmt) {
+                        $trans_stmt->bind_param("ii", $new_id, $old_id);
+                        $trans_stmt->execute();
+                    }
+                }
+                
+                // Update supplier_orders if it exists
+                $order_check = $conn->query("SHOW TABLES LIKE 'supplier_orders'");
+                if ($order_check && $order_check->num_rows > 0) {
+                    $order_stmt = $conn->prepare("UPDATE supplier_orders SET product_id = ? WHERE product_id = ?");
+                    if ($order_stmt) {
+                        $order_stmt->bind_param("ii", $new_id, $old_id);
+                        $order_stmt->execute();
+                    }
+                }
+            }
+            $new_id++;
+        }
+        
+        // Reset auto increment to next available number
+        $conn->query("ALTER TABLE products AUTO_INCREMENT = $new_id");
+        
+        // Re-enable foreign key checks
+        $conn->query("SET FOREIGN_KEY_CHECKS = 1");
+        
+        // Commit the transaction
+        $conn->commit();
+        $conn->autocommit(true);
+        
+        return true;
+    } catch (Exception $e) {
+        // Rollback on error
+        $conn->rollback();
+        $conn->query("SET FOREIGN_KEY_CHECKS = 1");
+        $conn->autocommit(true);
+        throw new Exception("Failed to reorder product IDs: " . $e->getMessage());
+    }
+}
+
+// this removes a product completely - be careful!
 function deleteProduct($conn, $id) {
     try {
+        // Start transaction to ensure all deletions happen together
+        $conn->autocommit(false);
+        
+        // First, delete any records from product_audit_log that reference this product
+        $audit_stmt = $conn->prepare("DELETE FROM product_audit_log WHERE product_id = ?");
+        if ($audit_stmt) {
+            $audit_stmt->bind_param("i", $id);
+            $audit_stmt->execute();
+        }
+        
+        // Also delete from inventory_transactions if it exists
+        $trans_check = $conn->query("SHOW TABLES LIKE 'inventory_transactions'");
+        if ($trans_check && $trans_check->num_rows > 0) {
+            $trans_stmt = $conn->prepare("DELETE FROM inventory_transactions WHERE product_id = ?");
+            if ($trans_stmt) {
+                $trans_stmt->bind_param("i", $id);
+                $trans_stmt->execute();
+            }
+        }
+        
+        // Finally, delete the product itself
         $stmt = $conn->prepare("DELETE FROM products WHERE id = ?");
         if (!$stmt) {
             throw new Exception("Prepare failed: " . $conn->error);
         }
-        
-        $stmt->bind_param("i", $id);
+          $stmt->bind_param("i", $id);
         if (!$stmt->execute()) {
             throw new Exception("Execute failed: " . $stmt->error);
         }
         
-        return $stmt->affected_rows > 0;
+        $affected_rows = $stmt->affected_rows;
+        
+        // Commit the transaction
+        $conn->commit();
+        $conn->autocommit(true);
+        
+        // If deletion was successful, reorder the remaining product IDs
+        if ($affected_rows > 0) {
+            reorderProductIds($conn);
+        }
+        
+        return $affected_rows > 0; // return true if something was deleted
     } catch (Exception $e) {
+        // Rollback on error
+        $conn->rollback();
+        $conn->autocommit(true);
         error_log("Delete product error: " . $e->getMessage());
         throw $e;
     }
 }
 
-// Function to update existing product (does not modify arrival_date or quantity_arrived)
+// function to update existing product info
+// this changes the product details but keeps the original arrival info
 function updateProduct($conn, $id, $name, $quantity, $alert_quantity, $price) {
     try {
-        // Only update the fields that should be editable, preserve arrival_date and quantity_arrived
+        // only update the fields that should be editable - don't mess with arrival data
         $stmt = $conn->prepare("UPDATE products SET name = ?, quantity = ?, alert_quantity = ?, price = ? WHERE id = ?");
         if (!$stmt) {
             throw new Exception("Prepare failed: " . $conn->error);
@@ -81,14 +199,15 @@ function updateProduct($conn, $id, $name, $quantity, $alert_quantity, $price) {
             throw new Exception("Execute failed: " . $stmt->error);
         }
         
-        return true;
+        return true; // success!
     } catch (Exception $e) {
         error_log("Update product error: " . $e->getMessage());
         throw $e;
     }
 }
 
-// Function to get product by ID
+// function to get single product by ID
+// useful when we need to edit a specific product
 function getProduct($conn, $id) {
     try {
         $stmt = $conn->prepare("SELECT * FROM products WHERE id = ?");
@@ -105,10 +224,10 @@ function getProduct($conn, $id) {
         $product = $result->fetch_assoc();
         
         if (!$product) {
-            return null;
+            return null; // product not found
         }
         
-        // Convert numeric values to proper types
+        // convert numbers to proper types - learned about type casting
         $product['id'] = (int)$product['id'];
         $product['quantity'] = (int)$product['quantity'];
         $product['alert_quantity'] = (int)$product['alert_quantity'];
@@ -121,26 +240,29 @@ function getProduct($conn, $id) {
     }
 }
 
-// Handle AJAX requests
+// handle AJAX requests for getting product info and deleting products
+// this responds with JSON data instead of HTML
 if (isset($_GET['action'])) {
-    header('Content-Type: application/json');
+    header('Content-Type: application/json'); // tell browser we're sending JSON
     
     try {
         switch ($_GET['action']) {
             case 'get_product':
+                // get a single product for editing
                 if (!isset($_GET['id']) || !is_numeric($_GET['id'])) {
                     throw new Exception('Invalid product ID');
                 }
                 $product = getProduct($conn, $_GET['id']);
                 if ($product) {
-                    echo json_encode($product);
+                    echo json_encode($product); // send product data as JSON
                 } else {
                     http_response_code(404);
                     echo json_encode(['error' => 'Product not found']);
-                }                break;
+                }
+                break;
                 
             case 'delete':
-                // Check if user has edit permissions
+                // check if user can delete products
                 if ($is_read_only) {
                     throw new Exception('You don\'t have permission to delete products.');
                 }
@@ -162,12 +284,13 @@ if (isset($_GET['action'])) {
         http_response_code(400);
         echo json_encode(['error' => $e->getMessage()]);
     }
-    exit;
+    exit; // stop here for AJAX requests
 }
 
-// Handle POST requests
+// handle form submissions when user adds or edits products
+// this processes POST requests from the forms
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
-    // Check if user has edit permissions
+    // check if user can edit products - only some users can
     if ($is_read_only) {
         $_SESSION['error'] = "You don't have permission to edit inventory.";
         header("Location: inventory.php");
@@ -177,29 +300,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     try {
         switch ($_POST['action']) {
             case 'add':
+                // add new product to database
                 $quantity_arrived = isset($_POST['quantity_arrived']) ? (int)$_POST['quantity_arrived'] : (int)$_POST['quantity'];
                 if (!addProduct($conn, $_POST['name'], $_POST['quantity'], $_POST['alert_quantity'], $_POST['price'], $quantity_arrived)) {
                     throw new Exception("Failed to add product");
                 }
-                $success = "Product added successfully";
-                break;
-
-            case 'edit':
+                $success = "Product added successfully"; // show success message
+                break;            case 'edit':
+                // update existing product
                 if (!updateProduct($conn, $_POST['product_id'], $_POST['name'], $_POST['quantity'], $_POST['alert_quantity'], $_POST['price'])) {
                     throw new Exception("Failed to update product");
                 }
-                $success = "Product updated successfully";
+                $success = "Product updated successfully"; // show success message
+                break;
+                
+            case 'reorder_ids':
+                // manually reorder product IDs
+                if (reorderProductIds($conn)) {
+                    $success = "Product IDs reordered successfully";
+                } else {
+                    throw new Exception("Failed to reorder product IDs");
+                }
                 break;
                 
             default:
                 throw new Exception("Invalid action");
         }
     } catch (Exception $e) {
-        $error = $e->getMessage();
+        $error = $e->getMessage(); // show error message if something goes wrong
     }
 }
 
-// Get all products for display
+// get all products for display on the page
 $products = getAllProducts($conn);
 ?>
 <!DOCTYPE html>
@@ -208,42 +340,51 @@ $products = getAllProducts($conn);
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Inventory Management - Inventory System</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">    <link rel="stylesheet" href="css/style.css">
+    <!-- using basic fonts instead of fancy Google fonts -->
+    <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/dashboard.css">
     <link rel="stylesheet" href="css/sidebar.css">
 </head>
 <body>
     <div class="dashboard-container">
-        <!-- Include Sidebar -->
+        <!-- sidebar navigation -->
         <?php require_once 'templates/sidebar.php'; ?>
 
-        <!-- Main Content -->
+        <!-- main page content -->
         <main class="main-content">
             <header class="dashboard-header">
                 <h1>Inventory Management</h1>
-                <div class="header-actions">                    <div class="search-bar">
+                <div class="header-actions">
+                    <!-- search box for finding products -->
+                    <div class="search-bar">
                         <input type="text" id="searchInput" placeholder="Search products..." class="search-input">
-                        <button type="button" class="search-btn"><i class="fas fa-search"></i></button>
-                    </div>
-                    <?php if (!$is_read_only): ?>
+                        <button type="button" class="search-btn">🔍</button>
+                    </div>                    <?php if (!$is_read_only): ?>
+                    <!-- add product button - only show if user can edit -->
                     <button class="btn btn-primary" onclick="openAddProductModal()">
-                        <i class="fas fa-plus"></i> Add New Product
+                        ➕ Add New Product
+                    </button>
+                    <!-- reorder IDs button - only show if user can edit -->
+                    <button class="btn btn-secondary" onclick="reorderProductIds()" title="Reorder Product IDs">
+                        🔄 Reorder IDs
                     </button>
                     <?php endif; ?>
                 </div>
             </header>
 
+            <!-- show success or error messages -->
             <?php if (isset($success)): ?>
                 <div class="alert alert-success"><?php echo htmlspecialchars($success); ?></div>
             <?php endif; ?>
 
             <?php if (isset($error)): ?>
                 <div class="alert alert-danger"><?php echo htmlspecialchars($error); ?></div>
-            <?php endif; ?>            <!-- Products Table -->
+            <?php endif; ?>            <!-- products table showing all inventory -->
             <div class="card">
                 <div class="card-body">
-                    <table class="table">                        <thead>
+                    <table class="table">
+                        <!-- table headers -->
+                        <thead>
                             <tr>
                                 <th>ID</th>
                                 <th>Product Name</th>
@@ -257,7 +398,9 @@ $products = getAllProducts($conn);
                             </tr>
                         </thead>
                         <tbody>
-                            <?php foreach ($products as $product): ?>                            <tr>
+                            <!-- loop through all products and show them -->
+                            <?php foreach ($products as $product): ?>
+                            <tr>
                                 <td><?php echo htmlspecialchars($product['id']); ?></td>
                                 <td><?php echo htmlspecialchars($product['name']); ?></td>
                                 <td><?php echo htmlspecialchars($product['quantity']); ?></td>
@@ -266,23 +409,29 @@ $products = getAllProducts($conn);
                                 <td>$<?php echo number_format($product['price'], 2); ?></td>
                                 <td><?php echo date('M j, Y', strtotime($product['created_at'])); ?></td>
                                 <td>
+                                    <!-- show stock status with color coding -->
                                     <span class="status-badge <?php echo $product['quantity'] <= $product['alert_quantity'] ? 'low-stock' : 'in-stock'; ?>">
                                         <?php echo $product['quantity'] <= $product['alert_quantity'] ? 'Low Stock' : 'In Stock'; ?>
-                                    </span>                                </td>
+                                    </span>
+                                </td>
                                 <td>
                                     <?php if (!$is_read_only): ?>
+                                    <!-- edit and delete buttons - only show if user can edit -->
                                     <button class="btn btn-sm btn-primary" onclick="editProduct(<?php echo $product['id']; ?>)">
-                                        <i class="fas fa-edit"></i>
+                                        ✏️
                                     </button>
                                     <button class="btn btn-sm btn-danger" onclick="deleteProduct(<?php echo $product['id']; ?>)">
-                                        <i class="fas fa-trash"></i>
+                                        🗑️
                                     </button>
                                     <?php else: ?>
                                     <span class="text-muted">View Only</span>
                                     <?php endif; ?>
-                                </td>                            </tr>
+                                </td>
+                            </tr>
                             <?php endforeach; ?>
-                              <?php if (empty($products)): ?>
+                            
+                            <!-- show message if no products found -->
+                            <?php if (empty($products)): ?>
                             <tr>
                                 <td colspan="9" class="text-center">No products found</td>
                             </tr>
@@ -476,14 +625,37 @@ $products = getAllProducts($conn);
                 alert('Quantity arrived (' + quantityArrived + ') cannot be greater than current quantity (' + quantity + ')');
                 return false;
             }
-            
-            if (price <= 0) {
+              if (price <= 0) {
                 e.preventDefault();
                 alert('Price must be greater than 0');
                 return false;
             }
         });
-    </script>    <style>
+
+        // Function to reorder product IDs
+        async function reorderProductIds() {
+            if (confirm('Are you sure you want to reorder all product IDs? This will renumber all products sequentially.')) {
+                try {
+                    const formData = new FormData();
+                    formData.append('action', 'reorder_ids');
+                    
+                    const response = await fetch('inventory.php', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    if (response.ok) {
+                        window.location.reload();
+                    } else {
+                        throw new Error('Failed to reorder product IDs');
+                    }
+                } catch (error) {
+                    console.error('Error reordering product IDs:', error);
+                    alert('Error reordering product IDs: ' + error.message);
+                }
+            }
+        }
+    </script><style>
         /* Additional styles for new columns */
         .table th:nth-child(4), 
         .table td:nth-child(4) {
