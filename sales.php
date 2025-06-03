@@ -1,15 +1,20 @@
 <?php
+// sales.php - this handles all the sales stuff
+// need to include database and check if user can see this
 require_once 'config/db.php';
 require_once 'config/auth.php';
 
-// Check if user has access to sales management
-// Admins and cashiers can access sales
+// check if user has access to sales page
+// only admins and cashiers can see sales data
 requireRole(['admin', 'cashier'], $conn);
 
-$current_user_role = getCurrentUserRole($conn);
+$current_user_role = getCurrentUserRole($conn); // figure out what type of user this is
 
-// Function to get all sales
-function getAllSales($conn, $limit = 10) {    $sql = "SELECT 
+// function to get all the sales from database
+// this shows recent sales in a table
+function getAllSales($conn, $limit = 10) {
+    // get sales data with some joins - learned this in database class
+    $sql = "SELECT 
         o.id, 
         o.created_at as order_date,
         o.total_amount,
@@ -24,7 +29,7 @@ function getAllSales($conn, $limit = 10) {    $sql = "SELECT
     
     $stmt = $conn->prepare($sql);
     if (!$stmt) {
-        return false;
+        return false; // something went wrong
     }
     
     $stmt->bind_param('i', $limit);
@@ -32,7 +37,7 @@ function getAllSales($conn, $limit = 10) {    $sql = "SELECT
     return $stmt->get_result();
 }
 
-// Function to get sales summary
+// function to get sales summary - total sales, revenue, etc
 function getSalesSummary($conn) {
     $sql = "SELECT 
         COUNT(id) as total_sales,
@@ -44,11 +49,12 @@ function getSalesSummary($conn) {
     $result = $conn->query($sql);
     if ($result) {
         $data = $result->fetch_assoc();
-        // Format the numbers
+        // make the numbers look nice with decimals
         $data['total_revenue'] = number_format($data['total_revenue'], 2);
         $data['average_sale'] = number_format($data['average_sale'], 2);
         return $data;
     } else {
+        // if something went wrong, return zeros
         return [
             'total_sales' => 0,
             'total_revenue' => '0.00',
@@ -226,8 +232,7 @@ $products = $conn->query($products_sql);
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sales - Inventory System</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">    <title>Sales - Inventory System</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="css/style.css">
@@ -541,10 +546,9 @@ $products = $conn->query($products_sql);
                 <!-- Recent Sales Table -->
                 <div class="sales-card">
                     <h2 style="text-align: center; margin-bottom: 1.5rem;">Recent Sales</h2>
-                    <table class="recent-sales">
-                        <thead>
+                    <table class="recent-sales">                        <thead>
                             <tr>
-                                <th>Order ID</th>
+                                <th>Sales ID</th>
                                 <th>Date</th>
                                 <th>Items</th>
                                 <th>Total</th>

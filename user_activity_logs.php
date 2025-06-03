@@ -1,9 +1,12 @@
 <?php
+// user activity logs page - shows what users are doing in the system
+// learned about activity tracking in my security class - pretty important for monitoring
 require_once 'config/db.php';
 require_once 'config/auth.php';
 require_once 'config/activity_logger.php';
 
 // Check if user is logged in and has admin access
+// only admins should see this stuff - that would be bad if everyone could!
 if (!isset($_SESSION['user_id'])) {
     header("Location: login.php");
     exit();
@@ -12,34 +15,34 @@ if (!isset($_SESSION['user_id'])) {
 // Only admins can view activity logs
 requireRole(['admin'], $conn);
 
-// Initialize activity logger
+// Initialize activity logger - this handles all the logging stuff
 $activityLogger = new UserActivityLogger($conn);
 
-// Handle pagination
+// Handle pagination - learned about this for big data sets
 $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
-$limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 50;
+$limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 50; // show 50 logs per page
 $offset = ($page - 1) * $limit;
 
-// Handle filters
+// Handle filters - users can filter by different criteria
 $user_filter = isset($_GET['user_id']) ? (int)$_GET['user_id'] : null;
 $activity_filter = isset($_GET['activity_type']) ? $_GET['activity_type'] : null;
 $date_from = isset($_GET['date_from']) ? $_GET['date_from'] : null;
 $date_to = isset($_GET['date_to']) ? $_GET['date_to'] : null;
 
-// Get activity logs with filters
+// Get activity logs with filters applied
 $logs = $activityLogger->getActivityLogs($limit, $offset, $user_filter, $activity_filter, $date_from, $date_to);
 
-// Get statistics
+// Get statistics for the dashboard cards
 $stats = $activityLogger->getActivityStats($date_from, $date_to);
 
-// Get active users
+// Get currently active users - shows who's online right now
 $active_users = $activityLogger->getActiveUsers();
 
-// Get all users for filter dropdown
+// Get all users for the filter dropdown menu
 $users_result = $conn->query("SELECT id, username FROM users ORDER BY username");
 $all_users = $users_result ? $users_result->fetch_all(MYSQLI_ASSOC) : [];
 
-// Handle log cleanup
+// Handle log cleanup - admins can delete old logs to save space
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     if ($_POST['action'] === 'cleanup_logs') {
         $days = isset($_POST['cleanup_days']) ? (int)$_POST['cleanup_days'] : 90;
@@ -54,36 +57,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8">    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>User Activity Logs - Inventory System</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- Font Awesome for icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+    <!-- our css files -->
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/dashboard.css">
     <link rel="stylesheet" href="css/sidebar.css">
 </head>
-<body>
-    <div class="dashboard-container">
+<body>    <div class="dashboard-container">
         <!-- Include Sidebar -->
         <?php 
-        $current_page = 'activity_logs';
+        $current_page = 'user_activity_logs';
         require_once 'templates/sidebar.php'; 
         ?>
 
         <!-- Main Content -->
         <main class="main-content">
-            <div class="content-header">
-                <h1><i class="fas fa-history"></i> User Activity Logs</h1>
+            <header class="dashboard-header">
+                <h1>📝 User Activity Logs</h1>
                 <div class="header-actions">
                     <button class="btn btn-secondary" onclick="openCleanupModal()">
-                        <i class="fas fa-broom"></i> Cleanup Old Logs
+                        🧹 Cleanup Old Logs
                     </button>
                     <button class="btn btn-primary" onclick="exportLogs()">
-                        <i class="fas fa-download"></i> Export Logs
+                        📥 Export Logs
                     </button>
                 </div>
-            </div>
+            </header>
 
             <?php if (isset($success)): ?>
                 <div class="alert alert-success"><?php echo htmlspecialchars($success); ?></div>
@@ -91,13 +95,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
             <?php if (isset($error)): ?>
                 <div class="alert alert-danger"><?php echo htmlspecialchars($error); ?></div>
-            <?php endif; ?>
-
-            <!-- Statistics Cards -->
+            <?php endif; ?><!-- Statistics Cards - shows basic stats about user activity -->
             <div class="stats-container">
                 <div class="stat-card">
                     <div class="stat-icon activity">
-                        <i class="fas fa-chart-line"></i>
+                        📊
                     </div>
                     <div class="stat-details">
                         <span class="stat-title">Total Activities</span>
@@ -106,7 +108,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 </div>
                 <div class="stat-card">
                     <div class="stat-icon login">
-                        <i class="fas fa-sign-in-alt"></i>
+                        🔐
                     </div>
                     <div class="stat-details">
                         <span class="stat-title">Total Logins</span>
@@ -115,7 +117,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 </div>
                 <div class="stat-card">
                     <div class="stat-icon users">
-                        <i class="fas fa-users"></i>
+                        👥
                     </div>
                     <div class="stat-details">
                         <span class="stat-title">Unique Users</span>
@@ -124,7 +126,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 </div>
                 <div class="stat-card">
                     <div class="stat-icon duration">
-                        <i class="fas fa-clock"></i>
+                        ⏰
                     </div>
                     <div class="stat-details">
                         <span class="stat-title">Avg Session</span>
@@ -133,11 +135,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 </div>
             </div>
 
-            <!-- Active Users Section -->
+            <!-- Active Users Section - shows who's currently online -->
             <?php if (!empty($active_users)): ?>
             <div class="card">
                 <div class="card-header">
-                    <h3><i class="fas fa-user-check"></i> Currently Active Users</h3>
+                    <h3>✅ Currently Active Users</h3>
                 </div>
                 <div class="card-body">
                     <div class="active-users-grid">
@@ -147,13 +149,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                                 <div class="user-name"><?php echo htmlspecialchars($active_user['username']); ?></div>
                                 <div class="user-role"><?php echo htmlspecialchars(ucfirst($active_user['role'])); ?></div>
                             </div>
-                            <div class="session-info">
-                                <div class="login-time">
-                                    <i class="fas fa-clock"></i>
+                            <div class="session-info">                                <div class="login-time">
+                                    🕐
                                     <?php echo date('M j, Y H:i', strtotime($active_user['login_time'])); ?>
                                 </div>
                                 <div class="ip-address">
-                                    <i class="fas fa-map-marker-alt"></i>
+                                    🌐
                                     <?php echo htmlspecialchars($active_user['ip_address']); ?>
                                 </div>
                             </div>
@@ -207,21 +208,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                             <option value="50" <?php echo ($limit === 50) ? 'selected' : ''; ?>>50</option>
                             <option value="100" <?php echo ($limit === 100) ? 'selected' : ''; ?>>100</option>
                         </select>
-                    </div>
-
-                    <button type="submit" class="btn btn-primary">
-                        <i class="fas fa-filter"></i> Apply Filters
+                    </div>                    <button type="submit" class="btn btn-primary">
+                        🔍 Apply Filters
                     </button>
                     <a href="user_activity_logs.php" class="btn btn-secondary">
-                        <i class="fas fa-times"></i> Clear
+                        ❌ Clear
                     </a>
                 </form>
             </div>
 
-            <!-- Activity Logs Table -->
+            <!-- Activity Logs Table - the main part showing all the user activities -->
             <div class="card">
                 <div class="card-header">
-                    <h3><i class="fas fa-list"></i> Activity Logs</h3>
+                    <h3>📋 Activity Logs</h3>
                 </div>
                 <div class="card-body">
                     <div class="table-responsive">
@@ -251,9 +250,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                                             <?php echo htmlspecialchars(ucfirst($log['user_role'])); ?>
                                         </span>
                                     </td>
-                                    <td>
-                                        <span class="activity-badge <?php echo $log['activity_type']; ?>">
-                                            <i class="fas fa-<?php echo ($log['activity_type'] === 'login') ? 'sign-in-alt' : 'sign-out-alt'; ?>"></i>
+                                    <td>                                        <span class="activity-badge <?php echo $log['activity_type']; ?>">
+                                            <?php echo ($log['activity_type'] === 'login') ? '🔐' : '🚪'; ?>
                                             <?php echo htmlspecialchars(ucfirst(str_replace('_', ' ', $log['activity_type']))); ?>
                                         </span>
                                     </td>
@@ -290,17 +288,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                             Showing page <?php echo $page; ?> of logs
                         </div>
                         <div class="pagination-links">
-                            <?php if ($page > 1): ?>
-                            <a href="?page=<?php echo ($page-1); ?>&<?php echo http_build_query(array_filter($_GET, function($key) { return $key !== 'page'; }, ARRAY_FILTER_USE_KEY)); ?>" 
+                            <?php if ($page > 1): ?>                            <a href="?page=<?php echo ($page-1); ?>&<?php echo http_build_query(array_filter($_GET, function($key) { return $key !== 'page'; }, ARRAY_FILTER_USE_KEY)); ?>" 
                                class="btn btn-sm btn-secondary">
-                                <i class="fas fa-chevron-left"></i> Previous
+                                ⬅️ Previous
                             </a>
                             <?php endif; ?>
                             
                             <?php if (count($logs) === $limit): ?>
                             <a href="?page=<?php echo ($page+1); ?>&<?php echo http_build_query(array_filter($_GET, function($key) { return $key !== 'page'; }, ARRAY_FILTER_USE_KEY)); ?>" 
                                class="btn btn-sm btn-secondary">
-                                Next <i class="fas fa-chevron-right"></i>
+                                Next ➡️
                             </a>
                             <?php endif; ?>
                         </div>
@@ -323,9 +320,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     <small class="form-text">Logs older than the specified number of days will be permanently deleted.</small>
                 </div>
 
-                <div class="form-actions">
-                    <button type="submit" class="btn btn-danger">
-                        <i class="fas fa-trash"></i> Delete Old Logs
+                <div class="form-actions">                    <button type="submit" class="btn btn-danger">
+                        🗑️ Delete Old Logs
                     </button>
                     <button type="button" class="btn btn-secondary" onclick="closeCleanupModal()">
                         Cancel
@@ -373,6 +369,165 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     </script>
 
     <style>
+        /* Ensure sidebar styles take priority */
+        .sidebar {
+            width: 250px !important;
+            min-height: 100vh !important;
+            background: #f8f9fa !important;
+            color: #333 !important;
+            padding: 15px !important;
+            display: flex !important;
+            flex-direction: column !important;
+            position: fixed !important;
+            left: 0 !important;
+            top: 0 !important;
+            border-right: 1px solid #ddd !important;
+        }
+
+        .sidebar .admin-header {
+            margin-bottom: 20px !important;
+            padding: 15px !important;
+            border-bottom: 1px solid #ddd !important;
+        }
+
+        .sidebar .profile-section {
+            display: flex !important;
+            align-items: center !important;
+            gap: 10px !important;
+        }
+
+        .sidebar .admin-avatar {
+            width: 40px !important;
+            height: 40px !important;
+            background-color: #e9ecef !important;
+            border-radius: 50% !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            border: 1px solid #ccc !important;
+            font-size: 20px !important;
+        }
+
+        .sidebar .profile-info {
+            flex: 1 !important;
+            display: flex !important;
+            flex-direction: column !important;
+            gap: 5px !important;
+        }
+
+        .sidebar .username {
+            font-size: 16px !important;
+            font-weight: bold !important;
+            color: #333 !important;
+            margin: 0 !important;
+        }
+
+        .sidebar .user-role {
+            display: flex !important;
+            align-items: center !important;
+        }
+
+        .sidebar .role-badge {
+            font-size: 12px !important;
+            font-weight: bold !important;
+            padding: 3px 8px !important;
+            border-radius: 3px !important;
+            text-transform: uppercase !important;
+        }
+
+        .sidebar .role-admin {
+            background-color: #ffcccc !important;
+            color: #990000 !important;
+        }
+
+        .sidebar .role-store_clerk {
+            background-color: #ccffcc !important;
+            color: #006600 !important;
+        }
+
+        .sidebar .role-cashier {
+            background-color: #ffffcc !important;
+            color: #996600 !important;
+        }
+
+        .sidebar .online-status {
+            display: flex !important;
+            align-items: center !important;
+            gap: 5px !important;
+            font-size: 14px !important;
+            color: #009900 !important;
+            font-weight: 500 !important;
+        }
+
+        /* Navigation styles */
+        .sidebar .sidebar-nav {
+            flex: 1 !important;
+            display: flex !important;
+            flex-direction: column !important;
+            gap: 8px !important;
+            margin-bottom: 20px !important;
+        }
+
+        .sidebar .nav-link {
+            color: #333 !important;
+            text-decoration: none !important;
+            padding: 12px 15px !important;
+            border-radius: 3px !important;
+            background-color: #fff !important;
+            border: 1px solid #ddd !important;
+            font-weight: normal !important;
+        }
+
+        .sidebar .nav-link:hover {
+            background-color: #e9ecef !important;
+            color: #000 !important;
+        }
+
+        .sidebar .nav-link.active {
+            background-color: #0066cc !important;
+            color: white !important;
+            font-weight: bold !important;
+        }
+
+        /* Sidebar footer styles */
+        .sidebar .sidebar-footer {
+            margin-top: auto !important;
+            display: flex !important;
+            flex-direction: column !important;
+            gap: 8px !important;
+        }
+
+        .sidebar .sidebar-footer a {
+            text-decoration: none !important;
+            display: flex !important;
+            align-items: center !important;
+            gap: 8px !important;
+            padding: 10px !important;
+            border-radius: 3px !important;
+            font-weight: normal !important;
+            color: #333 !important;
+        }
+
+        .sidebar .sidebar-footer a:hover {
+            background-color: #f8f9fa !important;
+        }
+
+        .sidebar .sidebar-footer a:first-child {
+            color: #0066cc !important;
+        }
+
+        .sidebar .sidebar-footer a:first-child:hover {
+            background-color: #e6f3ff !important;
+        }
+
+        .sidebar .sidebar-footer a.logout {
+            color: #cc0000 !important;
+        }
+
+        .sidebar .sidebar-footer a.logout:hover {
+            background-color: #ffe6e6 !important;
+        }
+
         .stats-container {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
