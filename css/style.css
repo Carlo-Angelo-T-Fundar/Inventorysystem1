@@ -20,14 +20,25 @@ body {
     min-height: 100vh;
 }
 
-/* side menu */
-.sidebar {
-    background: white;
-    border-right: 2px solid #ccc;
-    width: 250px;
-    height: 100vh;
-    position: fixed;
+/* Global responsive styles */
+.table-responsive {
+    overflow-x: auto;
+    width: 100%;
 }
+
+/* Hide scrollbar for Chrome, Safari, and Opera */
+.table-responsive::-webkit-scrollbar {
+    display: none;
+}
+
+/* Hide scrollbar for IE, Edge, and Firefox */
+.table-responsive {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+}
+
+/* side menu - now in sidebar.css */
+/* .sidebar styles removed from here - see sidebar.css */
 
 .sidebar-header {
     padding: 20px;
@@ -1349,4 +1360,21 @@ textarea.form-control {
     }
 }
 
+/* Ensure avatar blue border is consistently visible across all pages */
+.sidebar .admin-avatar,
+.sidebar a.admin-avatar,
+[data-page="users_crud"] .sidebar .admin-avatar,
+[data-page="user_activity_logs"] .sidebar .admin-avatar {
+    border: 2px solid #0066cc !important;
+}
+
+/* Ensure proper styling for specific pages that might have conflicts */
+body[data-page="users_crud"] .sidebar .profile-section .admin-avatar,
+body[data-page="user_activity_logs"] .sidebar .profile-section .admin-avatar {
+    border: 2px solid #0066cc !important;
+    background-color: #e9ecef !important;
+    width: 45px !important;
+    height: 45px !important;
+    border-radius: 50% !important;
+}
 }
