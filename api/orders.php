@@ -90,16 +90,15 @@ function handle_list_orders($conn) {
         $items_stmt->bind_param("i", $row['id']);
         $items_stmt->execute();
         $items_result = $items_stmt->get_result();
-        
-        $items = [];
+          $items = [];
         while ($item = $items_result->fetch_assoc()) {
             $items[] = [
                 'id' => (int) $item['id'],
                 'product_id' => (int) $item['product_id'],
                 'product_name' => $item['product_name'],
                 'quantity' => (int) $item['quantity'],
-                'price' => (float) $item['price'],
-                'subtotal' => (float) ($item['quantity'] * $item['price'])
+                'price' => (float) $item['unit_price'],
+                'subtotal' => (float) ($item['quantity'] * $item['unit_price'])
             ];
         }        $orders[] = [
             'id' => (int) $row['id'],
@@ -191,16 +190,15 @@ function handle_get_order($conn) {
     $items_stmt->bind_param("i", $order_id);
     $items_stmt->execute();
     $items_result = $items_stmt->get_result();
-    
-    $items = [];
+      $items = [];
     while ($item = $items_result->fetch_assoc()) {
         $items[] = [
             'id' => (int) $item['id'],
             'product_id' => (int) $item['product_id'],
             'product_name' => $item['product_name'],
             'quantity' => (int) $item['quantity'],
-            'price' => (float) $item['price'],
-            'subtotal' => (float) ($item['quantity'] * $item['price'])
+            'price' => (float) $item['unit_price'],
+            'subtotal' => (float) ($item['quantity'] * $item['unit_price'])
         ];
     }    // Format response
     $response = [

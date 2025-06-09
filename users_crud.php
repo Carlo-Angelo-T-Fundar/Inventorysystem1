@@ -165,6 +165,13 @@ if ($action === 'edit' && $user_id) {
 
 // Get all users for the list
 if ($action === 'list') {
+    // Check if full_name column exists, if not add it
+    $check_column = $conn->query("SHOW COLUMNS FROM users LIKE 'full_name'");
+    if ($check_column->num_rows == 0) {
+        $alter_sql = "ALTER TABLE users ADD COLUMN full_name VARCHAR(100) AFTER email";
+        $conn->query($alter_sql);
+    }
+    
     $result = $conn->query("SELECT id, username, email, full_name, role, created_at FROM users ORDER BY id ASC");
 }
 
@@ -210,18 +217,21 @@ $current_page = 'users_crud';
             display: flex !important;
             align-items: center !important;
             gap: 10px !important;
-        }
-
-        .sidebar .admin-avatar {
-            width: 40px !important;
-            height: 40px !important;
+        }        .sidebar .admin-avatar {
+            width: 45px !important;
+            height: 45px !important;
             background-color: #e9ecef !important;
             border-radius: 50% !important;
             display: flex !important;
             align-items: center !important;
             justify-content: center !important;
-            border: 1px solid #ccc !important;
-            font-size: 20px !important;
+            border: 2px solid #0066cc !important;
+            font-size: 22px !important;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1) !important;
+            transition: all 0.2s ease !important;
+            cursor: pointer !important;
+            text-decoration: none !important;
+            color: inherit !important;
         }
 
         .sidebar .profile-info {
@@ -600,7 +610,7 @@ $current_page = 'users_crud';
         }
     </style>
 </head>
-<body>    <div class="dashboard-container">
+<body class="logged-in page-users_crud" data-page="users_crud">    <div class="dashboard-container">
         <!-- sidebar goes here -->
         <?php 
         $current_page = 'users_crud';
@@ -839,9 +849,7 @@ $current_page = 'users_crud';
         </main>
     </div>
 
-    <!-- Auto-logout system -->
-    <script src="css/auto-logout.js"></script>
-    <script>
+    <!-- Auto-logout system -->    <script>
         // Mark body as logged in for auto-logout detection
         document.body.classList.add('logged-in');
         document.body.setAttribute('data-user-id', '<?php echo $_SESSION['user_id']; ?>');
