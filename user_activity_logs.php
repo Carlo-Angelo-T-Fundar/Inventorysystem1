@@ -68,7 +68,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     <link rel="stylesheet" href="css/dashboard.css">
     <link rel="stylesheet" href="css/sidebar.css">
 </head>
-<body>    <div class="dashboard-container">
+<body class="logged-in page-user_activity_logs" data-page="user_activity_logs">    <div class="dashboard-container">
         <!-- Include Sidebar -->
         <?php 
         $current_page = 'user_activity_logs';
@@ -358,14 +358,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 closeCleanupModal();
             }
         }
-
-        // Auto-refresh active users every 30 seconds
-        setInterval(function() {
-            // Only refresh if no filters are applied to avoid disrupting user's work
-            if (window.location.search === '' || window.location.search === '?') {
-                location.reload();
-            }
-        }, 30000);
     </script>
 
     <style>
@@ -394,18 +386,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             display: flex !important;
             align-items: center !important;
             gap: 10px !important;
-        }
-
-        .sidebar .admin-avatar {
-            width: 40px !important;
-            height: 40px !important;
+        }        .sidebar .admin-avatar {
+            width: 45px !important;
+            height: 45px !important;
             background-color: #e9ecef !important;
             border-radius: 50% !important;
             display: flex !important;
             align-items: center !important;
             justify-content: center !important;
-            border: 1px solid #ccc !important;
-            font-size: 20px !important;
+            border: 2px solid #0066cc !important;
+            font-size: 22px !important;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1) !important;
+            transition: all 0.2s ease !important;
+            cursor: pointer !important;
+            text-decoration: none !important;
+            color: inherit !important;
         }
 
         .sidebar .profile-info {
@@ -926,9 +921,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
     </style>
 
-    <!-- Auto-logout system -->
-    <script src="css/auto-logout.js"></script>
-    <script>
+    <!-- Auto-logout system -->    <script>
         // Mark body as logged in for auto-logout detection
         document.body.classList.add('logged-in');
         document.body.setAttribute('data-user-id', '<?php echo $_SESSION['user_id']; ?>');
