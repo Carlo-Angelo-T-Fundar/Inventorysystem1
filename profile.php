@@ -124,6 +124,35 @@ $page_title = "Profile";
             background-color: #f8d7da;
             color: #721c24;
         }
+
+        /* add styling for logout section */
+        .logout-section {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+        }
+        
+        .btn-logout {
+            background-color: #dc3545;
+            border: none;
+            padding: 10px 20px;
+            color: white;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            text-decoration: none;
+            display: inline-block;
+            transition: background-color 0.3s ease;
+        }
+        
+        .btn-logout:hover {
+            background-color: #c82333;
+        }
+
+        .btn-logout:focus {
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.3);
+        }
     </style>
 </head>
 <body>
@@ -258,6 +287,15 @@ $page_title = "Profile";
                         </div>
                     </div>
                 </div>
+            </div>
+
+            <!-- Add this before the closing main-content div -->
+            <div class="profile-card logout-section">
+                <h2>Account Actions</h2>
+                <p>Click below to sign out of your account</p>
+                <a href="logout.php" class="btn-logout">
+                    Sign Out
+                </a>
             </div>
         </main>
     </div>

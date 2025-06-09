@@ -147,12 +147,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_sale'])) {
             $stmt->bind_param('d', $total_amount);
             
             if ($stmt->execute()) {
-                $order_id = $stmt->insert_id;
-                
-                // Add order item
-                $item_sql = "INSERT INTO order_items (order_id, product_id, quantity, price) VALUES (?, ?, ?, ?)";
+                $order_id = $stmt->insert_id;                  // Add order item
+                $item_sql = "INSERT INTO order_items (order_id, product_id, product_name, quantity, unit_price, total_price) VALUES (?, ?, ?, ?, ?, ?)";
                 $stmt = $conn->prepare($item_sql);
-                $stmt->bind_param('iidd', $order_id, $product_id, $quantity, $product['price']);                if ($stmt->execute()) {
+                $total_price = $quantity * $product['price'];
+                $stmt->bind_param('iisidd', $order_id, $product_id, $product['name'], $quantity, $product['price'], $total_price);
+                if ($stmt->execute()) {
                     // Update product quantity
                     $update_sql = "UPDATE products SET quantity = quantity - ? WHERE id = ?";
                     $stmt = $conn->prepare($update_sql);
