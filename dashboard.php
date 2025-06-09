@@ -13,9 +13,81 @@ if ($row['count'] == 0) {
         ('Product 3', 5, 10, 39.99),
         ('Product 4', 20, 10, 49.99),
         ('Product 5', 3, 10, 59.99)";
-    
-    if (!$conn->query($sample_data_sql)) {
+      if (!$conn->query($sample_data_sql)) {
         die("Error inserting sample data: " . $conn->error);
+    }
+}
+
+// Add sample orders data if table is empty
+$check_orders_empty = $conn->query("SELECT COUNT(*) as count FROM orders");
+$orders_row = $check_orders_empty->fetch_assoc();
+if ($orders_row['count'] == 0) {
+    // Check which columns exist before using them
+    $check_user_id = $conn->query("SHOW COLUMNS FROM orders LIKE 'user_id'");
+    $check_sales_channel = $conn->query("SHOW COLUMNS FROM orders LIKE 'sales_channel'");
+    $check_destination = $conn->query("SHOW COLUMNS FROM orders LIKE 'destination'");
+    
+    $has_user_id = $check_user_id->num_rows > 0;
+    $has_sales_channel = $check_sales_channel->num_rows > 0;
+    $has_destination = $check_destination->num_rows > 0;
+      // Build the INSERT statement based on available columns
+    $columns = ['total_amount', 'status', 'created_at'];
+    $values_template = ['?, ?, ?'];
+    
+    $sample_data = [
+        [1049.98, 'completed', '2024-01-15 10:30:00'],
+        [179.98, 'completed', '2024-01-15 14:20:00'],
+        [599.99, 'completed', '2024-01-16 09:15:00'],
+        [89.99, 'completed', '2024-01-16 16:45:00'],
+        [1299.98, 'completed', '2024-01-17 11:20:00'],
+        [249.99, 'completed', '2024-01-18 13:30:00'],
+        [899.99, 'completed', '2024-01-19 16:00:00'],
+        [159.98, 'completed', '2024-01-20 11:45:00'],
+        [75.99, 'pending', date('Y-m-d H:i:s')]
+    ];
+    
+    if ($has_user_id) {
+        array_unshift($columns, 'user_id');
+        array_unshift($values_template, '?');
+        foreach ($sample_data as &$row) {
+            array_unshift($row, 1);
+        }
+    }
+    
+    if ($has_sales_channel) {
+        $columns[] = 'sales_channel';
+        $values_template[] = '?';
+        $channels = ['online', 'store', 'online', 'store', 'online', 'store', 'online', 'store', 'online'];
+        foreach ($sample_data as $i => &$row) {
+            $row[] = $channels[$i] ?? 'store';
+        }
+    }
+    
+    if ($has_destination) {
+        $columns[] = 'destination';
+        $values_template[] = '?';
+        $destinations = ['Kathmandu', 'Lalitpur', 'Pokhara', 'Lalitpur', 'Biratnagar', 'Chitwan', 'Butwal', 'Dharan', 'Nepalgunj'];
+        foreach ($sample_data as $i => &$row) {
+            $row[] = $destinations[$i] ?? 'Lagao';
+        }
+    }
+    
+    // Create the SQL statement
+    $columns_str = implode(', ', $columns);
+    $values_str = '(' . implode(', ', $values_template) . ')';
+    $sample_orders_sql = "INSERT INTO orders ($columns_str) VALUES $values_str";
+    
+    // Insert each row
+    $stmt = $conn->prepare($sample_orders_sql);
+    if ($stmt) {
+        foreach ($sample_data as $row) {
+            $types = str_repeat('s', count($row)); // Use string type for all values
+            $stmt->bind_param($types, ...$row);
+            $stmt->execute();
+        }
+        $stmt->close();
+    } else {
+        die("Error preparing sample orders statement: " . $conn->error);
     }
 }
 
