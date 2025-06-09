@@ -118,6 +118,70 @@ if ($result->num_rows == 0) {
     $update_admin->execute();
 }
 
+// Create orders table if not exists
+$sql = "CREATE TABLE IF NOT EXISTS orders (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT DEFAULT 1,
+    total_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    status ENUM('pending','processing','completed','cancelled') NOT NULL DEFAULT 'pending',
+    sales_channel VARCHAR(50) DEFAULT 'Store',
+    destination VARCHAR(255) DEFAULT 'Lagao',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    KEY idx_status (status),
+    KEY idx_created_at (created_at),
+    KEY idx_sales_channel (sales_channel),
+    KEY idx_order_status_date (status, created_at)
+)";
+
+if ($conn->query($sql) === FALSE) {
+    die("Error creating orders table: " . $conn->error);
+}
+
+// Add user_id column to existing orders table if it doesn't exist
+$check_user_id_column = $conn->query("SHOW COLUMNS FROM orders LIKE 'user_id'");
+if ($check_user_id_column->num_rows == 0) {
+    $alter_sql = "ALTER TABLE orders ADD COLUMN user_id INT DEFAULT 1 AFTER id";
+    if ($conn->query($alter_sql) === FALSE) {
+        die("Error adding user_id column to orders table: " . $conn->error);
+    }
+}
+
+// Add sales_channel column to existing orders table if it doesn't exist
+$check_sales_channel_column = $conn->query("SHOW COLUMNS FROM orders LIKE 'sales_channel'");
+if ($check_sales_channel_column->num_rows == 0) {
+    $alter_sql = "ALTER TABLE orders ADD COLUMN sales_channel VARCHAR(50) DEFAULT 'Store'";
+    if ($conn->query($alter_sql) === FALSE) {
+        die("Error adding sales_channel column to orders table: " . $conn->error);
+    }
+}
+
+// Add destination column to existing orders table if it doesn't exist
+$check_destination_column = $conn->query("SHOW COLUMNS FROM orders LIKE 'destination'");
+if ($check_destination_column->num_rows == 0) {
+    $alter_sql = "ALTER TABLE orders ADD COLUMN destination VARCHAR(255) DEFAULT 'Lagao'";
+    if ($conn->query($alter_sql) === FALSE) {
+        die("Error adding destination column to orders table: " . $conn->error);
+    }
+}
+
+// Create order_items table if not exists
+$sql = "CREATE TABLE IF NOT EXISTS order_items (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT NOT NULL,
+    product_id INT NOT NULL,
+    product_name VARCHAR(255) NOT NULL,
+    quantity INT NOT NULL,
+    unit_price DECIMAL(10,2) NOT NULL,
+    total_price DECIMAL(10,2) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+)";
+
+if ($conn->query($sql) === FALSE) {
+    die("Error creating order_items table: " . $conn->error);
+}
+
 // Create supplier_orders table if not exists
 $sql = "CREATE TABLE IF NOT EXISTS supplier_orders (
     id INT AUTO_INCREMENT PRIMARY KEY,
