@@ -1,19 +1,29 @@
 <?php
-// sales.php - this handles all the sales stuff
-// need to include database and check if user can see this
+/**
+ * Sales Management and Analytics Page
+ * 
+ * Displays sales data, analytics, and provides sales entry functionality.
+ * Access restricted to administrators and cashiers only.
+ * Includes recent sales history and summary statistics.
+ */
+
 require_once 'config/db.php';
 require_once 'config/auth.php';
 
-// check if user has access to sales page
-// only admins and cashiers can see sales data
+// Restrict access to authorized roles only
 requireRole(['admin', 'cashier'], $conn);
 
-$current_user_role = getCurrentUserRole($conn); // figure out what type of user this is
+$current_user_role = getCurrentUserRole($conn);
 
-// function to get all the sales from database
-// this shows recent sales in a table
+/**
+ * Retrieve all sales records from database
+ * 
+ * @param mysqli $conn Database connection
+ * @param int $limit Maximum number of records to return
+ * @return mysqli_result|null MySQLi result object or null on error
+ */
 function getAllSales($conn, $limit = 10) {
-    // get sales data with some joins - learned this in database class
+    // Query sales data with order item counts using JOIN
     $sql = "SELECT 
         o.id, 
         o.created_at as order_date,
@@ -29,7 +39,7 @@ function getAllSales($conn, $limit = 10) {
     
     $stmt = $conn->prepare($sql);
     if (!$stmt) {
-        return false; // something went wrong
+        return null; // Return null instead of false for consistency
     }
     
     $stmt->bind_param('i', $limit);
@@ -37,7 +47,15 @@ function getAllSales($conn, $limit = 10) {
     return $stmt->get_result();
 }
 
-// function to get sales summary - total sales, revenue, etc
+/**
+ * Generate sales summary statistics
+ * 
+ * Calculates total sales count, revenue, and average sale amount
+ * for all completed orders in the system.
+ * 
+ * @param mysqli $conn Database connection
+ * @return array Array containing sales statistics with formatted numbers
+ */
 function getSalesSummary($conn) {
     $sql = "SELECT 
         COUNT(id) as total_sales,
@@ -49,12 +67,12 @@ function getSalesSummary($conn) {
     $result = $conn->query($sql);
     if ($result) {
         $data = $result->fetch_assoc();
-        // make the numbers look nice with decimals
+        // Format numbers for display with proper decimal places
         $data['total_revenue'] = number_format($data['total_revenue'], 2);
         $data['average_sale'] = number_format($data['average_sale'], 2);
         return $data;
     } else {
-        // if something went wrong, return zeros
+        // Return default values if query fails
         return [
             'total_sales' => 0,
             'total_revenue' => '0.00',
@@ -80,7 +98,7 @@ function getTopSellingProducts($conn, $limit = 5) {
     
     $stmt = $conn->prepare($sql);
     if (!$stmt) {
-        return false;
+        return null;
     }
     
     $stmt->bind_param('i', $limit);
@@ -108,7 +126,7 @@ function getLowQuantityProducts($conn, $limit = 5) {
     
     $stmt = $conn->prepare($sql);
     if (!$stmt) {
-        return false;
+        return null;
     }
     
     $stmt->bind_param('i', $limit);
@@ -519,10 +537,23 @@ $products = $conn->query($products_sql);
 <body>
     <div class="dashboard-container">
         <?php include 'templates/sidebar.php'; ?>
-        
-        <main class="dashboard-content">            <div class="dashboard-header" style="text-align: center;">
+          <main class="dashboard-content">
+            <div class="dashboard-header" style="text-align: center;">
                 <h1>Sales Management</h1>
             </div>
+
+            <!-- Display success/error messages -->
+            <?php if (isset($success_message)): ?>
+                <div class="alert-success">
+                    <?php echo htmlspecialchars($success_message); ?>
+                </div>
+            <?php endif; ?>
+            
+            <?php if (isset($error_message)): ?>
+                <div class="alert-danger">
+                    <?php echo htmlspecialchars($error_message); ?>
+                </div>
+            <?php endif; ?>
 
             <!-- Original sales summary and content below -->
             <div class="sales-summary">

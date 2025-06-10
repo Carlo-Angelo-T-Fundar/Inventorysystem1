@@ -1,13 +1,19 @@
 <?php
-// profile.php - user profile page
+/**
+ * User Profile Management Page
+ * 
+ * Allows users to view and update their profile information,
+ * including email address and password changes.
+ */
+
 require_once 'config/db.php';
 require_once 'config/auth.php';
 
-// variables for messages
+// Initialize message variables for user feedback
 $success_message = '';
 $error_message = '';
 
-// get current user's data from database
+// Retrieve current user's data from database
 $user_id = $_SESSION['user_id'];
 $stmt = $conn->prepare("SELECT username, email, role, created_at FROM users WHERE id = ?");
 $stmt->bind_param("i", $user_id);
@@ -15,20 +21,20 @@ $stmt->execute();
 $result = $stmt->get_result();
 $user = $result->fetch_assoc();
 
-// if no user found, send back to login
+// Redirect to login if user not found
 if (!$user) {
     header('Location: login.php');
     exit();
 }
 
-// get user role
+// Get user role for authorization
 $user_role = getCurrentUserRole($conn);
 
-// handle form submission when user updates profile
+// Handle profile update form submissions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['action'])) {
         if ($_POST['action'] === 'update_profile') {
-            // update email address
+            // Process email address update
             $new_email = filter_var($_POST['email'], FILTER_VALIDATE_EMAIL);
             if ($new_email) {
                 // check if another user already has this email
@@ -61,16 +67,16 @@ $page_title = "Profile";
 ?>
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
+<head>    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Profile - Inventory System</title>
-    <!-- basic styling instead of fancy external fonts -->
+    
+    <!-- Core stylesheets -->
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/dashboard.css">
     <link rel="stylesheet" href="css/sidebar.css">
     <style>
-        /* basic profile page styles - learned CSS in web design class */
+        /* Profile page specific styling */
         .profile-card {
             background: white;
             padding: 20px;
