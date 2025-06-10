@@ -1,12 +1,14 @@
-/* sidebar.css - Pure CSS responsive sidebar with no JavaScript dependencies */
-/* Mobile-first responsive design */
+/**
+ * Sidebar CSS - Pure CSS responsive sidebar with no JavaScript dependencies
+ * Implements mobile-first responsive design approach
+ */
 
-/* Hidden checkbox for CSS-only mobile toggle */
+/* Hidden checkbox for CSS-only mobile toggle functionality */
 #sidebar-toggle {
     display: none;
 }
 
-/* Mobile menu toggle button - Pure CSS */
+/* Mobile menu toggle button styling */
 .mobile-menu-toggle {
     display: none;
     position: fixed;
@@ -243,7 +245,7 @@ a.admin-avatar:focus {
     align-items: center;
 }
 
-/* basic role badges - just different background colors */
+/* Role badge styling with color-coded backgrounds */
 .role-badge {
     font-size: 12px;
     font-weight: bold;

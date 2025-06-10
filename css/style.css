@@ -1,26 +1,26 @@
-/* basic css reset stuff */
+/* Global CSS Reset and Base Styles */
 * {
     margin: 0;
     padding: 0;
     box-sizing: border-box;
 }
 
-/* main body styling */
+/* Main body styling */
 body {
     margin: 0;
     padding: 0;
-    font-family: Arial, sans-serif; /* changed from fancy Google font */
-    background: #f0f0f0; /* simpler background */
+    font-family: Arial, sans-serif;
+    background: #f0f0f0;
     color: #000;
 }
 
-/* basic app layout - learned this in class */
+/* Application layout container */
 .app-container {
     display: flex;
     min-height: 100vh;
 }
 
-/* Global responsive styles */
+/* Global responsive table styles */
 .table-responsive {
     overflow-x: auto;
     width: 100%;
@@ -51,7 +51,7 @@ body {
     color: #0066cc;
 }
 
-/* admin info section */
+/* Admin profile section */
 .admin-profile {
     display: flex;
     align-items: center;
@@ -74,7 +74,7 @@ body {
     color: black;
 }
 
-/* online status */
+/* User online status indicator */
 .status {
     font-size: 12px;
     color: #666;
@@ -126,7 +126,7 @@ body {
     margin-bottom: 10px;
 }
 
-/* logout button */
+/* Logout button styling */
 .logout-btn {
     color: red;
     text-decoration: none;
@@ -137,18 +137,18 @@ body {
     color: darkred;
 }
 
-/* main content area */
+/* Main content area layout */
 .main-content {
-    margin-left: 250px; /* same as sidebar width */
+    margin-left: 250px; /* Match sidebar width */
     padding: 20px;
     min-height: 100vh;
 }
 
 .content {
-    max-width: none; /* remove fancy max width */
+    max-width: none;
 }
 
-/* top bar */
+/* Top navigation bar */
 .top-nav {
     background: white;
     padding: 15px 20px;
@@ -178,7 +178,7 @@ body {
     float: right;
 }
 
-/* basic mobile stuff - not great but works */
+/* Responsive design - Tablet view */
 @media (max-width: 768px) {
     .sidebar {
         width: 200px;
@@ -193,10 +193,10 @@ body {
     }
 }
 
-/* really small screens */
+/* Responsive design - Mobile view */
 @media (max-width: 500px) {
     .sidebar {
-        display: none; /* just hide it, easier than dealing with it */
+        display: none; /* Hide sidebar on very small screens */
     }
     
     .main-content {
