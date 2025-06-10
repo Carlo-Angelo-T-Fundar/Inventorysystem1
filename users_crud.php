@@ -1,31 +1,40 @@
 <?php
-// User management page - CRUD operations
-// This file handles creating, reading, updating and deleting users
+/**
+ * User Management System - CRUD Operations
+ * 
+ * This file handles all user management operations:
+ * - Create new users
+ * - Read/display user list
+ * - Update existing user information  
+ * - Delete users
+ * 
+ * Access restricted to administrators only.
+ */
 
 require_once 'config/db.php';
 require_once 'config/auth.php';
 
-// Only admins can access this page
+// Restrict access to administrators only
 requireRole(['admin'], $conn, 'index.php');
 
 $error = '';
 $success = '';
-$action = $_GET['action'] ?? 'list'; // default to showing list
+$action = $_GET['action'] ?? 'list'; // Default action is to display user list
 $user_id = $_GET['id'] ?? null;
 
-// Process form submissions
+// Process form submissions for user operations
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'];
     
     if ($action === 'create') {
-        // Get form data
+        // Retrieve and sanitize form data
         $username = trim($_POST['username']);
         $password = $_POST['password'];
         $email = trim($_POST['email']);
         $role = $_POST['role'];
         $full_name = trim($_POST['full_name']);
         
-        // Basic validation - learned this in web dev class
+        // Validate required fields and password requirements
         if (empty($username) || empty($password) || empty($email) || empty($role) || empty($full_name)) {
             $error = "All fields are required";
         } elseif (strlen($password) < 6) {

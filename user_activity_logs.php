@@ -1,29 +1,34 @@
 <?php
-// user activity logs page - shows what users are doing in the system
-// learned about activity tracking in my security class - pretty important for monitoring
+/**
+ * User Activity Logs Management Page
+ * 
+ * Displays comprehensive activity logs for system monitoring and auditing.
+ * Provides filtering capabilities by user, activity type, and date range.
+ * Access restricted to administrators only for security purposes.
+ */
+
 require_once 'config/db.php';
 require_once 'config/auth.php';
 require_once 'config/activity_logger.php';
 
-// Check if user is logged in and has admin access
-// only admins should see this stuff - that would be bad if everyone could!
+// Ensure user authentication
 if (!isset($_SESSION['user_id'])) {
     header("Location: login.php");
     exit();
 }
 
-// Only admins can view activity logs
+// Restrict access to administrators only
 requireRole(['admin'], $conn);
 
-// Initialize activity logger - this handles all the logging stuff
+// Initialize activity logger for database operations
 $activityLogger = new UserActivityLogger($conn);
 
-// Handle pagination - learned about this for big data sets
+// Handle pagination for large datasets
 $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
-$limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 50; // show 50 logs per page
+$limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 50; // Records per page
 $offset = ($page - 1) * $limit;
 
-// Handle filters - users can filter by different criteria
+// Process filter parameters from URL
 $user_filter = isset($_GET['user_id']) ? (int)$_GET['user_id'] : null;
 $activity_filter = isset($_GET['activity_type']) ? $_GET['activity_type'] : null;
 $date_from = isset($_GET['date_from']) ? $_GET['date_from'] : null;
