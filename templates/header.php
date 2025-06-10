@@ -1,9 +1,13 @@
 <?php
-// header.php - this goes at the top of every page
-// learned about includes in php class
+/**
+ * HTML Header Template
+ * 
+ * Common HTML head section and navigation setup for all pages.
+ * Includes authentication checking and admin role verification.
+ */
 require_once __DIR__ . '/../config/auth.php';
 
-// check if user is admin - simple way
+// Verify admin privileges for administrative interface elements
 $is_admin = false;
 $stmt = $conn->prepare("SELECT username FROM users WHERE id = ? AND username = 'admin'");
 $stmt->bind_param("i", $_SESSION['user_id']);
@@ -16,12 +20,17 @@ if ($stmt->get_result()->num_rows > 0) {
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo isset($page_title) ? $page_title . " - " : ""; ?>Inventory System</title>    <!-- basic styles instead of fancy external libraries -->    <link rel="stylesheet" href="css/style.css">
-    <link rel="stylesheet" href="css/dashboard.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">    <title><?php echo isset($page_title) ? $page_title . " - " : ""; ?>Inventory System</title>
     
-    <link rel="stylesheet" href="css/sidebar.css">    <!-- auto logout thing -->
-    <script src="css/auto-logout.js"></script>    <!-- Small inline script for current page highlighting - PHP based active states for simplicity -->
+    <!-- Core application stylesheets -->
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/dashboard.css">
+    <link rel="stylesheet" href="css/sidebar.css">
+    
+    <!-- Automatic session timeout functionality -->
+    <script src="css/auto-logout.js"></script>
+    
+    <!-- Navigation highlighting script for current page indication -->
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             // Get current page name from PHP

@@ -1,9 +1,15 @@
 <?php
-// sidebar.php - navigation menu for the site (CSS-only version)
-// figure out what page we're on
+/**
+ * Navigation Sidebar Template
+ * 
+ * Responsive navigation menu with role-based menu item visibility.
+ * Features CSS-only mobile toggle functionality and current page highlighting.
+ */
+
+// Determine current page for navigation highlighting
 $current_page = basename($_SERVER['PHP_SELF'], '.php');
 
-// get user role so we know what to show them
+// Configure role display labels for user interface
 $user_role = getCurrentUserRole($conn);
 $role_labels = [
     'admin' => 'ADMIN',
