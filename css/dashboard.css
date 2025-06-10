@@ -1,11 +1,14 @@
-/* simple dashboard styling - made by student */
+/**
+ * Dashboard styling and layout
+ * Defines the main dashboard container and sidebar components
+ */
 .dashboard-container {
     display: flex;
     min-height: 100vh;
     background-color: #f0f0f0;
 }
 
-/* basic sidebar */
+/* Sidebar styling */
 .sidebar {
     width: 200px;
     background: #333;

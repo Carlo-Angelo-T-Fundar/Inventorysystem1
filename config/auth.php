@@ -1,15 +1,28 @@
 <?php
+/**
+ * Authentication and Authorization Handler
+ * 
+ * Manages user session validation, role-based access control,
+ * and authentication helper functions throughout the application.
+ */
+
 session_start();
+
+// Redirect unauthenticated users to login page
 if (!isset($_SESSION['user_id'])) {
     header("Location: login.php");
     exit();
 }
 
-// Update last activity timestamp
+// Update user activity timestamp for session management
 $_SESSION['last_activity'] = time();
 
-// Authentication helper functions
-
+/**
+ * Get current user's role from database
+ * 
+ * @param mysqli $conn Database connection
+ * @return string User role or 'guest' if not found
+ */
 function getCurrentUserRole($conn) {
     if (isset($_SESSION['user_id'])) {
         $stmt = $conn->prepare("SELECT role FROM users WHERE id = ?");
@@ -22,6 +35,10 @@ function getCurrentUserRole($conn) {
     return 'guest';
 }
 
+/**
+ * Require user authentication for page access
+ * Redirects to login if user is not authenticated
+ */
 function requireAuth() {
     if (!isset($_SESSION['user_id'])) {
         header('Location: login.php');
