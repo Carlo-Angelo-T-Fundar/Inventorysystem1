@@ -1,16 +1,28 @@
 <?php
-// order.php - this is where we handle supplier orders for restocking
-// learned this from tutorial about including files
-// 
-// UPDATE: Added order status restriction - delivered and cancelled orders cannot be updated, only deleted
-// This prevents accidental changes to final status orders while maintaining data integrity
+/**
+ * Supplier Order Management System
+ * 
+ * Handles supplier order operations for inventory restocking including:
+ * - Creating new orders to suppliers
+ * - Managing order status (pending, ordered, shipped, delivered, cancelled)
+ * - Order approval workflow for non-admin users
+ * - Preventing modification of finalized orders (delivered/cancelled)
+ * - Sequential ID management after deletions
+ */
+
 require_once 'config/db.php';
 require_once 'config/auth.php';
 
-// function to reorder supplier order IDs to maintain sequential numbering after deletion
+/**
+ * Reorder supplier order IDs to maintain sequential numbering after deletion
+ * Ensures clean ID sequence and maintains referential integrity
+ * 
+ * @param mysqli $conn Database connection
+ * @throws Exception If reordering fails
+ */
 function reorderSupplierOrderIds($conn) {
-    try {
-        // Start transaction for reordering
+    try {  
+        // Start transaction for atomic reordering operation
         $conn->autocommit(false);
         
         // Get all supplier orders ordered by current ID

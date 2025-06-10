@@ -1,40 +1,44 @@
 <?php
-// login.php - this is where users log in to the system
-// learned about sessions in php class
+/**
+ * User Login Page
+ * 
+ * Handles user authentication and session management.
+ * Redirects authenticated users and validates login credentials.
+ */
+
 session_start();
 require_once 'config/db.php';
 require_once 'config/activity_logger.php';
 
-// make activity logger object
+// Initialize activity logger for tracking user login attempts
 $activityLogger = new UserActivityLogger($conn);
 
-// if user already logged in, send them to dashboard
+// Redirect already authenticated users to dashboard
 if (isset($_SESSION['user_id'])) {
     header("Location: dashboard.php");
     exit();
 }
 
-// check if form was submitted
+// Process login form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = $_POST['username'];
     $password = $_POST['password'];
     
-    // look up user in database
+    // Query database for user credentials
     $stmt = $conn->prepare("SELECT id, username, password, role FROM users WHERE username = ?");
     $stmt->bind_param("s", $username);
     $stmt->execute();
     $result = $stmt->get_result();
-    
-    if ($user = $result->fetch_assoc()) {
-        // check if password is correct
+      if ($user = $result->fetch_assoc()) {
+        // Verify the provided password against stored hash
         if (password_verify($password, $user['password'])) {
-            // set session variables - learned about this in web dev
+            // Create user session variables for authenticated user
             $_SESSION['user_id'] = $user['id'];
             $_SESSION['username'] = $user['username'];
             $_SESSION['role'] = $user['role'];
             $_SESSION['last_activity'] = time();
             
-            // log the login for tracking
+            // Log successful login activity for security tracking
             $activityLogger->logLogin($user['id'], $user['username'], $user['role']);
             
             header("Location: dashboard.php");
@@ -53,9 +57,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - Inventory Management System</title>
-    <link rel="stylesheet" href="css/style.css">
-    <style>
-        /* basic login page styling - learned CSS basics */
+    <link rel="stylesheet" href="css/style.css">    <style>
+        /* Login page styling */
         body {
             font-family: Arial, sans-serif;
             background-color: #f0f0f0;
