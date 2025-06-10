@@ -1,9 +1,16 @@
 <?php
-// dashboard.php - main page after login
+/**
+ * Dashboard - Main Application Page
+ * 
+ * Displays key business metrics, analytics charts, and system overview.
+ * Includes automatic sample data generation for new installations.
+ * Provides quick access to recent sales and low stock alerts.
+ */
+
 require_once 'config/db.php';
 require_once 'config/auth.php';
 
-// Add sample data if table is empty
+// Initialize sample data for new installations - Products
 $check_empty = $conn->query("SELECT COUNT(*) as count FROM products");
 $row = $check_empty->fetch_assoc();
 if ($row['count'] == 0) {
@@ -18,11 +25,11 @@ if ($row['count'] == 0) {
     }
 }
 
-// Add sample orders data if table is empty
+// Initialize sample data for new installations - Orders
 $check_orders_empty = $conn->query("SELECT COUNT(*) as count FROM orders");
 $orders_row = $check_orders_empty->fetch_assoc();
 if ($orders_row['count'] == 0) {
-    // Check which columns exist before using them
+    // Check for optional columns before insertion to ensure compatibility
     $check_user_id = $conn->query("SHOW COLUMNS FROM orders LIKE 'user_id'");
     $check_sales_channel = $conn->query("SHOW COLUMNS FROM orders LIKE 'sales_channel'");
     $check_destination = $conn->query("SHOW COLUMNS FROM orders LIKE 'destination'");
@@ -160,8 +167,9 @@ function getRecentSales($conn) {
 
 $recent_sales = getRecentSales($conn);
 
-// Get monthly sales data for chart
+// Get monthly sales data for chart - includes all months even with 0 sales
 function getMonthlySalesData($conn) {
+    // Get actual sales data
     $sql = "SELECT 
         DATE_FORMAT(created_at, '%Y-%m') as month,
         COUNT(*) as units_sold,
@@ -169,12 +177,33 @@ function getMonthlySalesData($conn) {
         COALESCE(SUM(CAST(total_amount AS DECIMAL(10,2))), 0) as revenue
     FROM orders 
     WHERE status = 'completed' 
-    AND created_at >= DATE_SUB(NOW(), INTERVAL 6 MONTH)
+    AND created_at >= DATE_SUB(NOW(), INTERVAL 11 MONTH)
     GROUP BY DATE_FORMAT(created_at, '%Y-%m')
     ORDER BY month ASC";
     
     $result = $conn->query($sql);
-    return $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
+    $actual_data = $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
+    
+    // Create array with all months in the last 12 months
+    $complete_data = [];
+    for ($i = 11; $i >= 0; $i--) {
+        $month = date('Y-m', strtotime("-$i months"));
+        $complete_data[$month] = [
+            'month' => $month,
+            'units_sold' => 0,
+            'total_transactions' => 0,
+            'revenue' => 0
+        ];
+    }
+    
+    // Fill in actual data where it exists
+    foreach ($actual_data as $data) {
+        if (isset($complete_data[$data['month']])) {
+            $complete_data[$data['month']] = $data;
+        }
+    }
+    
+    return array_values($complete_data);
 }
 
 $monthly_sales = getMonthlySalesData($conn);
@@ -683,29 +712,27 @@ $page_title = "Dashboard";
         // Chart.js Implementation
         const salesCtx = document.getElementById('salesChart').getContext('2d');
         const incomeCtx = document.getElementById('incomeChart').getContext('2d');
-        
-        // Prepare chart data
+          // Prepare chart data
         const monthlyData = <?php echo json_encode($monthly_sales); ?>;
         const labels = [];
         const unitsSold = [];
         const revenue = [];
-        
-        // If no data, show sample data
-        if (monthlyData.length === 0) {
-            const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
-            const sampleUnits = [120, 150, 180, 140, 200, 160];
-            const sampleRevenue = [12500, 15000, 18500, 14200, 20800, 16200];
-            
-            labels.push(...monthNames);
-            unitsSold.push(...sampleUnits);
-            revenue.push(...sampleRevenue);
-        } else {
-            monthlyData.forEach(item => {
-                const date = new Date(item.month + '-01');
+          // Process monthly data (all 12 months will be included, even with 0 values)
+        monthlyData.forEach(item => {
+            const date = new Date(item.month + '-01');
+            labels.push(date.toLocaleDateString('en-US', { month: 'short' }));
+            unitsSold.push(parseInt(item.units_sold) || 0);
+            revenue.push(parseFloat(item.revenue) || 0);
+        });
+          // Fallback if no data exists (shouldn't happen with new implementation)
+        if (labels.length === 0) {
+            const currentDate = new Date();
+            for (let i = 11; i >= 0; i--) {
+                const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1);
                 labels.push(date.toLocaleDateString('en-US', { month: 'short' }));
-                unitsSold.push(parseInt(item.units_sold) || 0);
-                revenue.push(parseFloat(item.revenue) || 0);
-            });
+                unitsSold.push(0);
+                revenue.push(0);
+            }
         }
 
         // Sales Chart (Blue bars only)
@@ -741,15 +768,19 @@ $page_title = "Dashboard";
                                 size: 12
                             }
                         }
-                    },
-                    tooltip: {
+                    },                    tooltip: {
                         mode: 'index',
                         intersect: false,
                         backgroundColor: 'rgba(0, 0, 0, 0.8)',
                         titleColor: '#ffffff',
                         bodyColor: '#ffffff',
                         borderColor: '#4F81BD',
-                        borderWidth: 1
+                        borderWidth: 1,
+                        callbacks: {
+                            label: function(context) {
+                                return context.dataset.label + ': ' + context.parsed.y + ' units';
+                            }
+                        }
                     }
                 },
                 scales: {
@@ -766,11 +797,11 @@ $page_title = "Dashboard";
                                 size: 12
                             }
                         }
-                    },
-                    y: {
+                    },                    y: {
                         type: 'linear',
                         display: true,
                         position: 'left',
+                        beginAtZero: true,
                         title: {
                             display: true,
                             text: 'Units Sold',
@@ -787,11 +818,13 @@ $page_title = "Dashboard";
                             lineWidth: 1
                         },
                         ticks: {
+                            beginAtZero: true,
                             color: '#6B7280',
                             font: {
                                 family: 'Inter',
                                 size: 11
-                            }
+                            },
+                            stepSize: 1
                         }
                     }
                 },
@@ -865,11 +898,11 @@ $page_title = "Dashboard";
                                 size: 12
                             }
                         }
-                    },
-                    y: {
+                    },                    y: {
                         type: 'linear',
                         display: true,
                         position: 'left',
+                        beginAtZero: true,
                         title: {
                             display: true,
                             text: 'Revenue ($)',
@@ -884,8 +917,8 @@ $page_title = "Dashboard";
                             display: true,
                             color: '#E5E7EB',
                             lineWidth: 1
-                        },
-                        ticks: {
+                        },                        ticks: {
+                            beginAtZero: true,
                             color: '#6B7280',
                             font: {
                                 family: 'Inter',
@@ -920,11 +953,7 @@ $page_title = "Dashboard";
                 window.location.href = `inventory.php?search=${encodeURIComponent(searchTerm)}`;
             }
         }
-    </script>
-    
-    <!-- Auto-logout system -->
-    <script src="css/auto-logout.js"></script>
-    <script>
+    </script>    <script>
         // Mark body as logged in for auto-logout detection
         document.body.classList.add('logged-in');
         document.body.setAttribute('data-user-id', '<?php echo $_SESSION['user_id']; ?>');
