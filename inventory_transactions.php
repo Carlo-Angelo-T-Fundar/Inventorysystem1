@@ -1,30 +1,44 @@
 <?php
-// inventory_transactions.php - this shows all the stuff happening with inventory
-// learned about joins and complex queries in database class!
+/**
+ * Inventory Transactions Management Page
+ * 
+ * Displays inventory transaction history with role-based filtering.
+ * Provides detailed transaction logs and inventory summaries based on user permissions.
+ * Supports different views for admin, store_clerk, supplier, and cashier roles.
+ */
 require_once 'config/db.php';
 require_once 'config/auth.php';
 
-// check what type of user can see this page
-// different users can see different transaction types - figured this out myself
+// Verify user has required permissions to access transaction data
 requireRole(['admin', 'store_clerk', 'supplier', 'cashier'], $conn);
 
-$current_user_role = getCurrentUserRole($conn); // get user role to filter what they can see
+$current_user_role = getCurrentUserRole($conn);
 
-// function to get inventory transactions based on what type of user you are
-// this is pretty complex but my prof said it's important to understand permissions
+/**
+ * Retrieve inventory transactions based on user role permissions
+ * 
+ * Implements role-based access control for transaction visibility:
+ * - Cashiers: Only sales transactions
+ * - Store Clerks: Only delivery transactions
+ * - Admins/Suppliers: All transaction types
+ * 
+ * @param mysqli $conn Database connection
+ * @param string $user_role Current user's role
+ * @return array Array of transaction records with product and order details
+ */
 function getInventoryTransactions($conn, $user_role) {
-    // figure out what transactions each user type can see
-    $where_clause = ""; // empty by default
+    // Configure transaction filtering based on user role permissions
+    $where_clause = "";
     if ($user_role === 'cashier') {
-        // cashiers only see sales they made - makes sense!
+        // Restrict cashiers to sales transactions only
         $where_clause = "WHERE it.transaction_type = 'sale'";
     } elseif ($user_role === 'store_clerk') {
-        // store clerks only see deliveries - they handle receiving stuff
+        // Restrict store clerks to delivery transactions only
         $where_clause = "WHERE it.transaction_type = 'delivery'";
     }
-    // admins and suppliers see everything - they're the bosses    
-    // big SQL query to get transaction data with joins
-    // learned about LEFT JOIN in database class - connects multiple tables
+    // Admins and suppliers have unrestricted access to all transactions
+    
+    // Comprehensive query joining transaction, product, and order data
     $sql = "SELECT 
                 it.*,
                 p.name as product_name_current,
@@ -34,32 +48,42 @@ function getInventoryTransactions($conn, $user_role) {
             LEFT JOIN products p ON it.product_id = p.id
             LEFT JOIN supplier_orders so ON it.supplier_order_id = so.id
             $where_clause
-            ORDER BY it.transaction_date DESC"; // most recent first
+            ORDER BY it.transaction_date DESC";
     
     $result = $conn->query($sql);
-    return $result ? $result->fetch_all(MYSQLI_ASSOC) : []; // return empty array if nothing found
+    return $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
 }
 
-// function to get summary of inventory by product - learned about GROUP BY here
-// this groups transactions by product and calculates totals
+/**
+ * Generate inventory summary statistics grouped by product
+ * 
+ * Provides aggregated transaction data with role-based filtering:
+ * - Calculates total transactions, sales, and deliveries per product
+ * - Shows current stock levels and alert quantities
+ * - Filters data based on user role permissions
+ * 
+ * @param mysqli $conn Database connection
+ * @param string $user_role Current user's role
+ * @return array Array of product summary statistics
+ */
 function getInventorySummary($conn, $user_role) {
-    // different queries for different user types - had to figure this out through trial and error
+    // Generate role-specific queries for transaction summaries
     if ($user_role === 'cashier') {
-        // cashiers only see sales data - keep it simple for them
+        // Cashiers view sales data only
         $sql = "SELECT 
                     p.name as base_name,
                     p.quantity as current_quantity,
                     p.alert_quantity as alert_quantity,
                     COUNT(it.id) as total_transactions,
-                    0 as total_delivered, -- cashiers don't see deliveries
+                    0 as total_delivered,
                     SUM(CASE WHEN it.transaction_type = 'sale' THEN it.quantity ELSE 0 END) as total_sold,
                     MAX(it.transaction_date) as last_transaction
                 FROM products p
                 LEFT JOIN inventory_transactions it ON p.id = it.product_id AND it.transaction_type = 'sale'
                 GROUP BY p.id, p.name
-                ORDER BY p.name"; // alphabetical order
+                ORDER BY p.name";
     } elseif ($user_role === 'store_clerk') {
-        // store clerks see both sales and deliveries - they handle both
+        // Store clerks view both sales and delivery data
         $sql = "SELECT 
                     p.name as base_name,
                     p.quantity as current_quantity,
@@ -71,9 +95,9 @@ function getInventorySummary($conn, $user_role) {
                 FROM products p
                 LEFT JOIN inventory_transactions it ON p.id = it.product_id AND it.transaction_type IN ('sale', 'delivery')
                 GROUP BY p.id, p.name
-                ORDER BY p.name"; // keep it alphabetical
+                ORDER BY p.name";
     } else {
-        // admins and suppliers see EVERYTHING - all transaction types
+        // Admins and suppliers view comprehensive transaction data
         $sql = "SELECT 
                     p.name as base_name,
                     p.quantity as current_quantity,
@@ -85,14 +109,14 @@ function getInventorySummary($conn, $user_role) {
                 FROM products p
                 LEFT JOIN inventory_transactions it ON p.id = it.product_id
                 GROUP BY p.id, p.name
-                ORDER BY p.name"; // same alphabetical sorting
+                ORDER BY p.name";
     }
     
     $result = $conn->query($sql);
-    return $result ? $result->fetch_all(MYSQLI_ASSOC) : []; // return empty if query fails
+    return $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
 }
 
-// actually run the functions to get the data we need
+// Execute data retrieval functions
 $transactions = getInventoryTransactions($conn, $current_user_role);
 $inventory_summary = getInventorySummary($conn, $current_user_role);
 ?>

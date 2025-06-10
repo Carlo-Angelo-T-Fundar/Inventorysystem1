@@ -1,40 +1,64 @@
 <?php
-// inventory.php - this handles product management stuff
-// includes database connection and checks if user can access this page
+/**
+ * Inventory Management System
+ * 
+ * Handles product management including create, read, update, and delete operations.
+ * Provides role-based access control with different permissions for different user types.
+ * Cashiers have read-only access while admins and store clerks can edit.
+ */
+
 require_once 'config/db.php';
 require_once 'config/auth.php';
 
-// check if user can access inventory - different users can do different things
-// admins and store clerks can edit, cashiers can only look
+// Check role-based access permissions
 requireRole(['admin', 'store_clerk', 'supplier', 'cashier'], $conn);
 
-$current_user_role = getCurrentUserRole($conn); // figure out what type of user this is
-$is_read_only = ($current_user_role === 'cashier'); // cashiers can't edit anything
+$current_user_role = getCurrentUserRole($conn);
+$is_read_only = ($current_user_role === 'cashier'); // Cashiers have read-only access
 
-// function to get all products from database
-// learned about SQL in database class
+/**
+ * Retrieve all products from database
+ * Ensures quantity_arrived column exists for inventory tracking
+ * 
+ * @param mysqli $conn Database connection
+ * @return array Array of product data
+ */
 function getAllProducts($conn) {
-    // check if we have the quantity_arrived column - might not exist in old databases
+    // Check for quantity_arrived column existence for backward compatibility
     $check_quantity_arrived = $conn->query("SHOW COLUMNS FROM products LIKE 'quantity_arrived'");
     $has_quantity_arrived = $check_quantity_arrived && $check_quantity_arrived->num_rows > 0;
     
     if (!$has_quantity_arrived) {
-        // add the column if it doesn't exist - learned about ALTER TABLE
+        // Add missing column with ALTER TABLE statement
         $conn->query("ALTER TABLE products ADD COLUMN quantity_arrived INT DEFAULT 0 AFTER quantity");
-        // update existing products so they have some data
+        // Initialize existing products with current quantity values
         $conn->query("UPDATE products SET quantity_arrived = quantity WHERE quantity_arrived = 0 OR quantity_arrived IS NULL");
     }
     
-    $sql = "SELECT * FROM products ORDER BY id ASC"; // get all products sorted by id
+    $sql = "SELECT * FROM products ORDER BY id ASC";
     $result = $conn->query($sql);
-    return $result ? $result->fetch_all(MYSQLI_ASSOC) : []; // return as array or empty array
+    
+    return $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
 }
 
-// function to add new product to database
-// this inserts a new row in the products table
+/**
+ * Add new product to database
+ * 
+ * Inserts a new product record with all required fields.
+ * Uses prepared statements for SQL injection protection.
+ * 
+ * @param mysqli $conn Database connection
+ * @param string $name Product name
+ * @param int $quantity Current stock quantity
+ * @param int $alert_quantity Low stock alert threshold
+ * @param float $price Product unit price
+ * @param int $quantity_arrived Initial quantity received
+ * @return bool True if product was added successfully
+ * @throws Exception If insertion fails
+ */
 function addProduct($conn, $name, $quantity, $alert_quantity, $price, $quantity_arrived) {
     try {
-        // prepared statement to prevent SQL injection - learned this in security class
+        // Use prepared statement for secure database insertion
         $stmt = $conn->prepare("INSERT INTO products (name, quantity, quantity_arrived, alert_quantity, price) VALUES (?, ?, ?, ?, ?)");
         if (!$stmt) {
             throw new Exception("Prepare failed: " . $conn->error);
@@ -73,13 +97,15 @@ function reorderProductIds($conn) {
                 $stmt = $conn->prepare("UPDATE products SET id = ? WHERE id = ?");
                 $stmt->bind_param("ii", $new_id, $old_id);
                 $stmt->execute();
-                
-                // Update related tables with new product ID
-                // Update product_audit_log
-                $audit_stmt = $conn->prepare("UPDATE product_audit_log SET product_id = ? WHERE product_id = ?");
-                if ($audit_stmt) {
-                    $audit_stmt->bind_param("ii", $new_id, $old_id);
-                    $audit_stmt->execute();
+                  // Update related tables with new product ID
+                // Update product_audit_log if it exists
+                $audit_check = $conn->query("SHOW TABLES LIKE 'product_audit_log'");
+                if ($audit_check && $audit_check->num_rows > 0) {
+                    $audit_stmt = $conn->prepare("UPDATE product_audit_log SET product_id = ? WHERE product_id = ?");
+                    if ($audit_stmt) {
+                        $audit_stmt->bind_param("ii", $new_id, $old_id);
+                        $audit_stmt->execute();
+                    }
                 }
                 
                 // Update inventory_transactions if it exists
@@ -125,17 +151,31 @@ function reorderProductIds($conn) {
     }
 }
 
-// this removes a product completely - be careful!
+/**
+ * Delete product from database with related data cleanup
+ * 
+ * Removes product and all associated records from related tables.
+ * Performs cascading deletion within a transaction for data integrity.
+ * Automatically reorders remaining product IDs after successful deletion.
+ * 
+ * @param mysqli $conn Database connection
+ * @param int $id Product ID to delete
+ * @return bool True if deletion was successful
+ * @throws Exception If deletion fails or product not found
+ */
 function deleteProduct($conn, $id) {
     try {
         // Start transaction to ensure all deletions happen together
         $conn->autocommit(false);
         
-        // First, delete any records from product_audit_log that reference this product
-        $audit_stmt = $conn->prepare("DELETE FROM product_audit_log WHERE product_id = ?");
-        if ($audit_stmt) {
-            $audit_stmt->bind_param("i", $id);
-            $audit_stmt->execute();
+        // First, check if product_audit_log table exists and delete any records that reference this product
+        $audit_check = $conn->query("SHOW TABLES LIKE 'product_audit_log'");
+        if ($audit_check && $audit_check->num_rows > 0) {
+            $audit_stmt = $conn->prepare("DELETE FROM product_audit_log WHERE product_id = ?");
+            if ($audit_stmt) {
+                $audit_stmt->bind_param("i", $id);
+                $audit_stmt->execute();
+            }
         }
         
         // Also delete from inventory_transactions if it exists
@@ -179,11 +219,24 @@ function deleteProduct($conn, $id) {
     }
 }
 
-// function to update existing product info
-// this changes the product details but keeps the original arrival info
+/**
+ * Update existing product information
+ * 
+ * Modifies product details while preserving original arrival data.
+ * Updates name, current quantity, alert threshold, and price.
+ * 
+ * @param mysqli $conn Database connection
+ * @param int $id Product ID to update
+ * @param string $name Updated product name
+ * @param int $quantity Updated current quantity
+ * @param int $alert_quantity Updated alert threshold
+ * @param float $price Updated unit price
+ * @return bool True if update was successful
+ * @throws Exception If update fails
+ */
 function updateProduct($conn, $id, $name, $quantity, $alert_quantity, $price) {
     try {
-        // only update the fields that should be editable - don't mess with arrival data
+        // Update editable fields while preserving arrival data
         $stmt = $conn->prepare("UPDATE products SET name = ?, quantity = ?, alert_quantity = ?, price = ? WHERE id = ?");
         if (!$stmt) {
             throw new Exception("Prepare failed: " . $conn->error);
@@ -206,8 +259,17 @@ function updateProduct($conn, $id, $name, $quantity, $alert_quantity, $price) {
     }
 }
 
-// function to get single product by ID
-// useful when we need to edit a specific product
+/**
+ * Retrieve single product by ID
+ * 
+ * Fetches complete product information for editing or display.
+ * Converts numeric fields to appropriate data types.
+ * 
+ * @param mysqli $conn Database connection
+ * @param int $id Product ID to retrieve
+ * @return array|null Product data array or null if not found
+ * @throws Exception If query fails
+ */
 function getProduct($conn, $id) {
     try {
         $stmt = $conn->prepare("SELECT * FROM products WHERE id = ?");
@@ -224,10 +286,10 @@ function getProduct($conn, $id) {
         $product = $result->fetch_assoc();
         
         if (!$product) {
-            return null; // product not found
+            return null; // Product not found
         }
         
-        // convert numbers to proper types - learned about type casting
+        // Convert fields to appropriate data types
         $product['id'] = (int)$product['id'];
         $product['quantity'] = (int)$product['quantity'];
         $product['alert_quantity'] = (int)$product['alert_quantity'];
@@ -240,21 +302,20 @@ function getProduct($conn, $id) {
     }
 }
 
-// handle AJAX requests for getting product info and deleting products
-// this responds with JSON data instead of HTML
+// Handle AJAX requests for product operations
+// Responds with JSON data for asynchronous operations
 if (isset($_GET['action'])) {
-    header('Content-Type: application/json'); // tell browser we're sending JSON
+    header('Content-Type: application/json'); // Set JSON response header
     
     try {
-        switch ($_GET['action']) {
-            case 'get_product':
-                // get a single product for editing
+        switch ($_GET['action']) {            case 'get_product':
+                // Retrieve single product data for editing
                 if (!isset($_GET['id']) || !is_numeric($_GET['id'])) {
                     throw new Exception('Invalid product ID');
                 }
                 $product = getProduct($conn, $_GET['id']);
                 if ($product) {
-                    echo json_encode($product); // send product data as JSON
+                    echo json_encode($product); // Return product data as JSON
                 } else {
                     http_response_code(404);
                     echo json_encode(['error' => 'Product not found']);
@@ -262,7 +323,7 @@ if (isset($_GET['action'])) {
                 break;
                 
             case 'delete':
-                // check if user can delete products
+                // Check user permissions for deletion
                 if ($is_read_only) {
                     throw new Exception('You don\'t have permission to delete products.');
                 }
