@@ -40,17 +40,17 @@ if ($orders_row['count'] == 0) {
       // Build the INSERT statement based on available columns
     $columns = ['total_amount', 'status', 'created_at'];
     $values_template = ['?, ?, ?'];
-    
-    $sample_data = [
+      $sample_data = [
         [1049.98, 'completed', '2024-01-15 10:30:00'],
         [179.98, 'completed', '2024-01-15 14:20:00'],
-        [599.99, 'completed', '2024-01-16 09:15:00'],
+        [599.99, 'cancelled', '2024-01-16 09:15:00'],
         [89.99, 'completed', '2024-01-16 16:45:00'],
         [1299.98, 'completed', '2024-01-17 11:20:00'],
-        [249.99, 'completed', '2024-01-18 13:30:00'],
+        [249.99, 'cancelled', '2024-01-18 13:30:00'],
         [899.99, 'completed', '2024-01-19 16:00:00'],
         [159.98, 'completed', '2024-01-20 11:45:00'],
-        [75.99, 'pending', date('Y-m-d H:i:s')]
+        [75.99, 'pending', date('Y-m-d H:i:s')],
+        [299.99, 'cancelled', '2024-01-21 14:30:00']
     ];
     
     if ($has_user_id) {
@@ -60,11 +60,10 @@ if ($orders_row['count'] == 0) {
             array_unshift($row, 1);
         }
     }
-    
-    if ($has_sales_channel) {
+      if ($has_sales_channel) {
         $columns[] = 'sales_channel';
         $values_template[] = '?';
-        $channels = ['online', 'store', 'online', 'store', 'online', 'store', 'online', 'store', 'online'];
+        $channels = ['online', 'store', 'online', 'store', 'online', 'store', 'online', 'store', 'online', 'store'];
         foreach ($sample_data as $i => &$row) {
             $row[] = $channels[$i] ?? 'store';
         }
@@ -73,7 +72,7 @@ if ($orders_row['count'] == 0) {
     if ($has_destination) {
         $columns[] = 'destination';
         $values_template[] = '?';
-        $destinations = ['Kathmandu', 'Lalitpur', 'Pokhara', 'Lalitpur', 'Biratnagar', 'Chitwan', 'Butwal', 'Dharan', 'Nepalgunj'];
+        $destinations = ['Kathmandu', 'Lalitpur', 'Pokhara', 'Lalitpur', 'Biratnagar', 'Chitwan', 'Butwal', 'Dharan', 'Nepalgunj', 'Bhaktapur'];
         foreach ($sample_data as $i => &$row) {
             $row[] = $destinations[$i] ?? 'Lagao';
         }
@@ -135,24 +134,24 @@ if ($stmt->get_result()->num_rows > 0) {
     $is_admin = true;
 }
 
-// Get order statistics
-$order_stats = [
-    'total_orders' => 0,
-    'pending_orders' => 0,
+// Get sales statistics
+$sales_stats = [
+    'total_sales' => 0,
+    'cancelled_orders' => 0,
     'completed_orders' => 0,
     'total_revenue' => 0
 ];
 
 $sql = "SELECT 
-    COUNT(*) as total_orders,
-    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending_orders,
+    COUNT(*) as total_sales,
+    SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_orders,
     SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_orders,
     COALESCE(SUM(CASE WHEN status = 'completed' THEN CAST(total_amount AS DECIMAL(10,2)) ELSE 0 END), 0) as total_revenue
 FROM orders";
 
 $result = $conn->query($sql);
 if ($result && $row = $result->fetch_assoc()) {
-    $order_stats = $row;
+    $sales_stats = $row;
 }
 
 // Get recent sales (completed orders only)
@@ -334,10 +333,9 @@ $page_title = "Dashboard";
             font-size: 16px;
             color: white;
         }
-        
-        .stat-icon.revenue { background: #10b981; }
-        .stat-icon.orders { background: #3b82f6; }
-        .stat-icon.pending { background: #f59e0b; }
+          .stat-icon.revenue { background: #10b981; }
+        .stat-icon.orders { background: #ef4444; }
+        .stat-icon.pending { background: #3b82f6; }
         .stat-icon.completed { background: #06b6d4; }
         
         .stat-details h3 {
@@ -461,8 +459,7 @@ $page_title = "Dashboard";
             font-size: 12px;
             font-weight: 500;
         }
-        
-        .status-badge.completed {
+          .status-badge.completed {
             background: #d1fae5;
             color: #065f46;
         }
@@ -470,6 +467,11 @@ $page_title = "Dashboard";
         .status-badge.pending {
             background: #fef3c7;
             color: #92400e;
+        }
+        
+        .status-badge.cancelled {
+            background: #fee2e2;
+            color: #991b1b;
         }
         
         .status-badge.low-stock {
@@ -551,7 +553,7 @@ $page_title = "Dashboard";
                         </div>
                         <div class="stat-details">
                             <h3>Revenue</h3>
-                            <div class="stat-value">$<?php echo number_format($order_stats['total_revenue'], 2); ?></div>
+                            <div class="stat-value">$<?php echo number_format($sales_stats['total_revenue'], 2); ?></div>
                         </div>
                     </div>
                 </div>
@@ -559,11 +561,11 @@ $page_title = "Dashboard";
                 <div class="stat-card">
                     <div class="stat-header">
                         <div class="stat-icon orders">
-                            <i class="fas fa-undo"></i>
+                            <i class="fas fa-times-circle"></i>
                         </div>
                         <div class="stat-details">
-                            <h3>Sales Return</h3>
-                            <div class="stat-value"><?php echo number_format($order_stats['pending_orders']); ?></div>
+                            <h3>Cancelled Orders</h3>
+                            <div class="stat-value"><?php echo number_format($sales_stats['cancelled_orders']); ?></div>
                         </div>
                     </div>
                 </div>
@@ -571,11 +573,11 @@ $page_title = "Dashboard";
                 <div class="stat-card">
                     <div class="stat-header">
                         <div class="stat-icon pending">
-                            <i class="fas fa-shopping-bag"></i>
+                            <i class="fas fa-shopping-cart"></i>
                         </div>
                         <div class="stat-details">
-                            <h3>Orders</h3>
-                            <div class="stat-value"><?php echo number_format($order_stats['total_orders']); ?></div>
+                            <h3>Sales</h3>
+                            <div class="stat-value"><?php echo number_format($sales_stats['total_sales']); ?></div>
                         </div>
                     </div>
                 </div>
@@ -587,10 +589,10 @@ $page_title = "Dashboard";
                         </div>
                         <div class="stat-details">
                             <h3>Income</h3>
-                            <div class="stat-value">$<?php echo number_format($order_stats['total_revenue'] * 0.85, 2); ?></div>
+                            <div class="stat-value">$<?php echo number_format($sales_stats['total_revenue'] * 0.85, 2); ?></div>
                         </div>
                     </div>
-                </div>            </div><!-- Chart Section -->            
+                </div></div><!-- Chart Section -->            
             <!-- Sales Analytics Charts -->
             <div class="charts-grid">
                 <div class="chart-section">
@@ -952,8 +954,11 @@ $page_title = "Dashboard";
                 // Redirect to inventory page with search parameter
                 window.location.href = `inventory.php?search=${encodeURIComponent(searchTerm)}`;
             }
-        }
-    </script>    <script>
+        }    </script>
+
+    <!-- Auto-logout system -->
+    <script src="css/auto-logout.js"></script>
+    <script>
         // Mark body as logged in for auto-logout detection
         document.body.classList.add('logged-in');
         document.body.setAttribute('data-user-id', '<?php echo $_SESSION['user_id']; ?>');

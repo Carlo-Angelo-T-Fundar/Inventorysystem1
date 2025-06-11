@@ -1273,11 +1273,10 @@ $suppliers = getSuppliers($conn);?>
                 <div class="form-group">
                     <label for="unit_price">Unit Price ($)</label>
                     <input type="number" id="unit_price" name="unit_price" required min="0" step="0.01" class="form-control">
-                </div>
-
-                <div class="form-group">
+                </div>                <div class="form-group">
                     <label for="expected_delivery_date">Expected Delivery Date</label>
-                    <input type="date" id="expected_delivery_date" name="expected_delivery_date" class="form-control">
+                    <input type="date" id="expected_delivery_date" name="expected_delivery_date" class="form-control" min="<?php echo date('Y-m-d'); ?>">
+                    <div class="form-text">Please select a date that is today or in the future</div>
                 </div>
 
                 <div class="form-group">
@@ -1572,10 +1571,28 @@ $suppliers = getSuppliers($conn);?>
             if (event.target == document.getElementById('createProductModal')) {
                 closeCreateProductModal();
             }
-        }
-
-        // Enhanced button interactions and feedback
+        }        // Enhanced button interactions and feedback
         document.addEventListener('DOMContentLoaded', function() {
+            // Date validation for delivery date field
+            const deliveryDateInput = document.getElementById('expected_delivery_date');
+            if (deliveryDateInput) {
+                const today = new Date().toISOString().split('T')[0];
+                deliveryDateInput.setAttribute('min', today);
+                
+                // Add validation on date change
+                deliveryDateInput.addEventListener('change', function() {
+                    const selectedDate = new Date(this.value);
+                    const todayDate = new Date();
+                    todayDate.setHours(0, 0, 0, 0); // Reset time to start of day
+                    
+                    if (selectedDate < todayDate) {
+                        alert('Please select a delivery date that is today or in the future.');
+                        this.value = ''; // Clear the invalid date
+                        this.focus(); // Focus back to the field
+                    }
+                });
+            }
+            
             // Add ripple effect to all buttons
             const buttons = document.querySelectorAll('.btn');
             buttons.forEach(button => {
